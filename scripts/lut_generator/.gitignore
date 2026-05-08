@@ -1,6 +1,0 @@
-# Ignorar el contenido de la carpeta "output"
-output/*
-
-# Ignorar archivos compilados de Python (opcional)
-__pycache__/
-*.py[cod]
