@@ -1,2 +1,2 @@
-# hls-tlut
-HLS t-LUT
+# TLUT_NLA
+Non-Linear t-LUT Accelerator
