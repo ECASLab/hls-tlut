@@ -1,3 +1,9 @@
+/*
+ * ----------------------------------------------------------------------------
+ * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
+ * ----------------------------------------------------------------------------
+ */
+
 #include "nla_core.h"
 
 void address_generation(

@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "nla_core.h"
-#include "../tluts_B8.h"
+#include "../tluts_B16.h"
 
 // Funciones Golden de referencia (Matemática ideal en software)
 double g_sigmoid(double x) { return 1.0 / (1.0 + std::exp(-x)); }
@@ -55,8 +55,9 @@ int main() {
         {"RELU", RELU_DLUT, RELU_ELUT, RELU_CONTROL, g_relu}
     };
 
-    dlut_t d_lut_mem[DLUT_DEPTH];
-    elut_t e_lut_mem[ELUT_DEPTH];
+    // Arreglos empaquetados para simular la memoria principal del ARM a 128 bits
+    axi_word_t d_lut_packed[(DLUT_DEPTH + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR];
+    axi_word_t e_lut_packed[(ELUT_DEPTH + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR];
 
     // Contadores globales
     int total_errors = 0;
@@ -77,11 +78,32 @@ int main() {
         int active_depth = (upper - lower) * (int)q_scale + 1;
         int d_cap = (active_depth + B_SIZE - 1) / B_SIZE;
 
-        for (int k = 0; k < active_depth; k++) {
-            e_lut_mem[k] = t.elut[k];
+        // Empaquetado E-LUT (Fragmentos de E_RESHAPE_FACTOR elementos por palabra de 128 bits)
+        int e_chunks = (active_depth + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR;
+        for (int c = 0; c < e_chunks; c++) {
+            axi_word_t word = 0;
+            for (int j = 0; j < E_RESHAPE_FACTOR; j++) {
+                int idx = c * E_RESHAPE_FACTOR + j;
+                if (idx < active_depth) {
+                    word.range(j * ELUT_WIDTH + (ELUT_WIDTH - 1), j * ELUT_WIDTH) = t.elut[idx];
+                }
+            }
+            e_lut_packed[c] = word;
         }
-        for (int k = 0; k < d_cap; k++) {
-            d_lut_mem[k] = (float)t.dlut[k] / q_scale; 
+
+        // Empaquetado D-LUT (Fragmentos de D_RESHAPE_FACTOR elementos por palabra de 128 bits)
+        int d_chunks = (d_cap + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR;
+        for (int c = 0; c < d_chunks; c++) {
+            axi_word_t word = 0;
+            for (int j = 0; j < D_RESHAPE_FACTOR; j++) {
+                int idx = c * D_RESHAPE_FACTOR + j;
+                if (idx < d_cap) {
+                    // Conversión al tipo ap_fixed configurado para obtener los bits exactos
+                    data_t val = (float)t.dlut[idx] / q_scale; 
+                    word.range(j * DLUT_WIDTH + (DLUT_WIDTH - 1), j * DLUT_WIDTH) = val.range(DLUT_WIDTH - 1, 0);
+                }
+            }
+            d_lut_packed[c] = word;
         }
 
         nla_config_t config_load;
@@ -92,8 +114,8 @@ int main() {
         hls::stream<axis_t> dummy_in;
         hls::stream<axis_t> dummy_out;
 
-        log_file << "Modo configuracion: Transmitiendo tablas por AXI-Master a memorias BRAM locales...\n";
-        nla_top(dummy_in, dummy_out, d_lut_mem, e_lut_mem, config_load);
+        log_file << "Modo configuracion: Transmitiendo tablas empaquetadas (128-bit) por AXI-Master...\n";
+        nla_top(dummy_in, dummy_out, d_lut_packed, e_lut_packed, config_load);
 
         std::vector<double> x_stim;
         for (double x = -8.0; x <= 8.0; x += 0.2) {
@@ -125,7 +147,7 @@ int main() {
             strm_in.write(val_in);
         }
 
-        nla_top(strm_in, strm_out, d_lut_mem, e_lut_mem, config_run);
+        nla_top(strm_in, strm_out, d_lut_packed, e_lut_packed, config_run);
 
         for (size_t j = 0; j < x_stim.size(); j++) {
             axis_t val_out = strm_out.read();
@@ -139,11 +161,9 @@ int main() {
 
             double diff = std::abs(y_hw - y_expected);
 
-            // [NUEVO] Sistema de Doble Tolerancia
-            double soft_tolerance = 0.05; // Solo avisa, no falla
-            double hard_tolerance = 0.15; // Inaceptable, falla el test
+            double soft_tolerance = 0.05;
+            double hard_tolerance = 0.15;
 
-            // Tolerancias más flexibles para valores grandes (como el crecimiento del EXP)
             if (y_expected > 10.0) {
                 soft_tolerance = 0.15;
                 hard_tolerance = 0.40;
@@ -168,7 +188,6 @@ int main() {
         res_file << "\n";
     }
 
-    // [NUEVO] Resumen en Consola
     std::cout << "\n======================================================\n";
     std::cout << "               RESUMEN DE SIMULACION HLS                \n";
     std::cout << "======================================================\n";
