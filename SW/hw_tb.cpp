@@ -12,9 +12,9 @@
 #include <vector>
 
 // Cabeceras de XRT (Xilinx Runtime)
-#include "experimental/xrt_bo.h"
-#include "experimental/xrt_device.h"
-#include "experimental/xrt_kernel.h"
+#include "xrt/xrt_bo.h"
+#include "xrt/xrt_device.h"
+#include "xrt/xrt_kernel.h"
 
 // Cabeceras de nuestro diseño (proveen data_t, axi_word_t, structs, etc)
 #include "nla_core.h"
