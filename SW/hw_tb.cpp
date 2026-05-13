@@ -1,6 +1,6 @@
 /*
  * ----------------------------------------------------------------------------
- * Host Testbench para XRT - FPGA Alveo (Desacoplado de HLS)
+ * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
  * ----------------------------------------------------------------------------
  */
 
@@ -27,8 +27,8 @@ const int Q_TOT_WIDTH = 16;
 const int Q_INT_WIDTH = 6;
 const double Q_SCALE = 1024.0; // 2^(16 - 6) = 1024.0
 
-// Un "Beat" de 128 bits nativo en C++ sin usar ap_uint<128>
-struct uint128_t {
+// Usamos uint128_raw para no hacer conflicto con __uint128_t de GCC
+struct uint128_raw {
     uint32_t data[4];
 };
 
@@ -121,14 +121,14 @@ int main(int argc, char **argv) {
         // Reserva de memoria en la Alveo
         auto bo_in  = xrt::bo(device, HW_MAX_SAMPLES * sizeof(int16_t), kernel.group_id(0));
         auto bo_out = xrt::bo(device, HW_MAX_SAMPLES * sizeof(int16_t), kernel.group_id(1));
-        auto bo_d   = xrt::bo(device, DLUT_WORDS_AXI * sizeof(uint128_t), kernel.group_id(2));
-        auto bo_e   = xrt::bo(device, ELUT_WORDS_AXI * sizeof(uint128_t), kernel.group_id(3));
+        auto bo_d   = xrt::bo(device, DLUT_WORDS_AXI * sizeof(uint128_raw), kernel.group_id(2));
+        auto bo_e   = xrt::bo(device, ELUT_WORDS_AXI * sizeof(uint128_raw), kernel.group_id(3));
 
         // Mapeo seguro a la CPU
         int16_t* in_map    = bo_in.map<int16_t*>();
         int16_t* out_map   = bo_out.map<int16_t*>();
-        uint128_t* d_map   = bo_d.map<uint128_t*>();
-        uint128_t* e_map   = bo_e.map<uint128_t*>();
+        uint128_raw* d_map = bo_d.map<uint128_raw*>();
+        uint128_raw* e_map = bo_e.map<uint128_raw*>();
 
         if (!in_map || !out_map || !d_map || !e_map) {
             throw std::runtime_error("Fallo al mapear la memoria BO hacia la CPU.");
@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
 
             // Empaquetado E-LUT (32 elementos de 4-bits por cada 128-bits)
             for (int c = 0; c < (active_depth + 31) / 32; c++) {
-                uint128_t word = {0, 0, 0, 0};
+                uint128_raw word = {0, 0, 0, 0};
                 for (int j = 0; j < 32; j++) {
                     int idx = c * 32 + j;
                     if (idx < active_depth) {
@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
 
             // Empaquetado D-LUT (8 elementos de 16-bits por cada 128-bits)
             for (int c = 0; c < (d_cap + 7) / 8; c++) {
-                uint128_t word = {0, 0, 0, 0};
+                uint128_raw word = {0, 0, 0, 0};
                 for (int j = 0; j < 8; j++) {
                     int idx = c * 8 + j;
                     if (idx < d_cap) {
@@ -209,8 +209,8 @@ int main(int argc, char **argv) {
             // ==========================================
             nla_config_t config_run = {0};
             config_run.c_sym = t.control[0];
-            config_run.upper_threshold = upper;
-            config_run.lower_threshold = lower;
+            config_run.upper_threshold = (int16_t)(upper * Q_SCALE); // Escalamiento necesario
+            config_run.lower_threshold = (int16_t)(lower * Q_SCALE); // Escalamiento necesario
             config_run.c_upper = t.control[3];
             config_run.c_lower = t.control[4];
             config_run.use_sym = t.control[5];
@@ -257,7 +257,7 @@ int main(int argc, char **argv) {
             mse /= sample_count;
             total_errors += local_errors;
 
-            // IMPRESIÓN EN CONSOLA
+            // IMPRESIÓN EN CONSOLA (Formato Conservado)
             std::cout << "======================================================\n";
             std::cout << "Funcion:\t" << t.name << "\n";
             std::cout << "Datos:\t\tSamples=" << sample_count << " | DLUT=" << d_cap << " | ELUT=" << active_depth << "\n";

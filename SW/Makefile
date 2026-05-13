@@ -1,29 +1,35 @@
 ifndef VERSION
-$(error Debes especificar la version a compilar/correr. Ejemplo: make run VERSION=v2)
+$(error Debes especificar la version a usar. Ejemplo: make run VERSION=v2)
 endif
 
-CXX := g++
-CXXFLAGS := -Wall -O3 -std=c++17 -I/opt/xilinx/xrt/include -I$(XILINX_HLS)/include -I../HW/$(VERSION) -I../HW
-LDFLAGS := -L/opt/xilinx/xrt/lib -lOpenCL -pthread -lxrt_coreutil
+# Archivos fuente y ejecutables
+SOURCES := hw_tb.cpp
+EXECUTABLES := nla_hw_test
 
+# Banderas estrictas (Tal cual el ejemplo)
+CFLAGS := -I/opt/xilinx/xrt/include -Wall -std=c++17 -O0 -g -I. -I./hls-types/include
+LDFLAGS := -L/opt/xilinx/xrt/lib -pthread -lxrt_core -lxrt_coreutil
+
+# Rutas dinámicas basadas en la versión
 TARGET := hw
 XCLBIN := ../HW/package.$(TARGET).$(VERSION)/kernels_$(VERSION).xclbin
-SRC := hw_tb.cpp
-EXE := nla_hw_test
 
 .PHONY: all clean run
 
-all: $(EXE)
+# Default target
+all: $(EXECUTABLES)
 
-$(EXE): $(SRC)
-	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
+# Regla de compilación original
+$(EXECUTABLES): %: %.cpp
+	$(CXX) -o $@ $< $(CFLAGS) $(LDFLAGS)
 
-run: $(EXE)
+# Regla para ejecutar el bitstream dinámico
+run: $(EXECUTABLES)
 	@echo "=========================================================="
-	@echo "Ejecutando Testbench en FPGA Alveo (Hardware Real)"
-	@echo "Bitstream seleccionado: $(XCLBIN)"
+	@echo "  Iniciando validación HW - Bitstream: $(XCLBIN)"
 	@echo "=========================================================="
-	./$(EXE) $(XCLBIN)
+	./$(EXECUTABLES) $(XCLBIN)
 
+# Regla de limpieza
 clean:
-	rm -f $(EXE) hw_results.txt hw_sim.log
+	$(RM) $(EXECUTABLES) hw_results.txt
