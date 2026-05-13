@@ -35,4 +35,4 @@ run: $(EXECUTABLES)
 
 # Regla de limpieza
 clean:
-	$(RM) $(EXECUTABLES) hw_results.txt
+	$(RM) $(EXECUTABLES) hw_results_*.txt
