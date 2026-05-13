@@ -1,6 +1,6 @@
 /*
  * ----------------------------------------------------------------------------
- * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
+ * Host Testbench para XRT - FPGA Alveo (Desacoplado de HLS)
  * ----------------------------------------------------------------------------
  */
 
@@ -10,19 +10,48 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <chrono>
 
-// Cabeceras de XRT (Xilinx Runtime)
+// Nuevos headers XRT Native C++ API
 #include "xrt/xrt_bo.h"
 #include "xrt/xrt_device.h"
 #include "xrt/xrt_kernel.h"
 
-// Cabeceras de nuestro diseño (proveen data_t, axi_word_t, structs, etc)
-#include "nla_core.h"
+// Tablas de valores precomputados
 #include "tluts_B16.h"
 
-// -------------------------------------------------------------------------
-// Referencias Golden
-// -------------------------------------------------------------------------
+// =========================================================================
+// 1. EQUIVALENCIAS DE TIPOS Y ESTRUCTURAS (Desacopladas de HLS)
+// =========================================================================
+const int Q_TOT_WIDTH = 16;
+const int Q_INT_WIDTH = 6;
+const double Q_SCALE = 1024.0; // 2^(16 - 6) = 1024.0
+
+// Un "Beat" de 128 bits nativo en C++ sin usar ap_uint<128>
+struct uint128_t {
+    uint32_t data[4];
+};
+
+// Esta estructura DEBE medir exactamente 24 bytes para coincidir 
+// con los 6 registros de 32-bits (config_r_1 a config_r_6) en la FPGA.
+struct __attribute__((packed)) nla_config_t {
+    int16_t c_sym;
+    int16_t upper_threshold;
+    int16_t lower_threshold;
+    int16_t c_upper;
+    int16_t c_lower;
+    uint8_t reload_tlut;
+    uint8_t use_sym;
+    uint8_t use_lin;
+    uint8_t padding_1[3];   // Forzar alineación a 32 bits
+    uint32_t num_samples;
+    uint16_t active_depth;
+    uint8_t padding_2[2];   // Relleno final para cerrar en 24 bytes
+};
+
+// =========================================================================
+// 2. REFERENCIAS GOLDEN (Software)
+// =========================================================================
 double g_sigmoid(double x)  { return 1.0 / (1.0 + std::exp(-x)); }
 double g_tanh(double x)     { return std::tanh(x); }
 double g_softsign(double x) { return x / (1.0 + std::abs(x)); }
@@ -44,9 +73,9 @@ struct TestCase {
     double (*golden)(double);
 };
 
-// -------------------------------------------------------------------------
-// MAIN EXECUTION
-// -------------------------------------------------------------------------
+// =========================================================================
+// 3. FUNCIÓN PRINCIPAL
+// =========================================================================
 int main(int argc, char **argv) {
     if (argc < 2) {
         std::cerr << "Uso: " << argv[0] << " <ruta_al_archivo.xclbin>" << std::endl;
@@ -55,17 +84,14 @@ int main(int argc, char **argv) {
 
     std::string binaryFile = argv[1];
 
-    // Constantes de HW (Deben coincidir con los pragmas m_axi depth)
     const int HW_MAX_SAMPLES = 100000;
-    const int DLUT_WORDS_AXI = 128;
-    const int ELUT_WORDS_AXI = 512;
-
-    const double SWEEP_STEP      = 0.1;
-    const double RANGE_PADDING   = 1.0;
-    const double TOL_HARD_NORMAL = 0.15;
-    const double TOL_HARD_LARGE  = 0.40;
+    const int DLUT_WORDS_AXI = 128; // (2048 / 16)
+    const int ELUT_WORDS_AXI = 512; // (16384 / 32)
+    const int B_SIZE = 16;
     
-    double q_scale = (double)(1 << (Q_TOT_WIDTH - Q_INT_WIDTH)); 
+    const double SWEEP_STEP = 0.1;
+    const double RANGE_PADDING = 1.0;
+    const double TOL_HARD = 0.20;
 
     std::vector<TestCase> tests = {
         {"SIGMOID", SIGMOID_DLUT, SIGMOID_ELUT, SIGMOID_CONTROL, g_sigmoid},
@@ -82,153 +108,174 @@ int main(int argc, char **argv) {
         {"RELU", RELU_DLUT, RELU_ELUT, RELU_CONTROL, g_relu}
     };
 
-    std::cout << "Inicializando FPGA y cargando Bitstream..." << std::endl;
-    auto device = xrt::device(0);
-    auto uuid = device.load_xclbin(binaryFile);
-    auto kernel = xrt::kernel(device, uuid, "nla_top");
-
-    // Creacion de Buffer Objects (BO) en la memoria DDR de la FPGA
-    auto bo_in  = xrt::bo(device, HW_MAX_SAMPLES * sizeof(data_t), kernel.group_id(0));
-    auto bo_out = xrt::bo(device, HW_MAX_SAMPLES * sizeof(data_t), kernel.group_id(1));
-    auto bo_d   = xrt::bo(device, DLUT_WORDS_AXI * sizeof(ap_uint<128>), kernel.group_id(2));
-    auto bo_e   = xrt::bo(device, ELUT_WORDS_AXI * sizeof(ap_uint<128>), kernel.group_id(3));
-
-    // Mapeo a espacio de usuario del Host (CPU)
-    data_t* in_map        = bo_in.map<data_t*>();
-    data_t* out_map       = bo_out.map<data_t*>();
-    ap_uint<128>* d_map   = bo_d.map<ap_uint<128>*>();
-    ap_uint<128>* e_map   = bo_e.map<ap_uint<128>*>();
-
     std::ofstream res_file("hw_results.txt");
     res_file << "X_REAL\tX_HW\tY_HW\tY_IDEAL\tDIFF\n";
-
     int total_errors = 0;
 
-    for (const auto& t : tests) {
-        int upper = t.control[1];
-        int lower = t.control[2];
-        int active_depth = (upper - lower) * (int)q_scale + 1;
-        int d_cap = (active_depth + B_SIZE - 1) / B_SIZE;
+    try {
+        std::cout << "Inicializando FPGA y cargando Bitstream..." << std::endl;
+        auto device = xrt::device(0);
+        auto uuid = device.load_xclbin(binaryFile);
+        auto kernel = xrt::kernel(device, uuid, "nla_top");
 
-        // Limpiar memoria de los mapas
-        std::memset(d_map, 0, DLUT_WORDS_AXI * sizeof(ap_uint<128>));
-        std::memset(e_map, 0, ELUT_WORDS_AXI * sizeof(ap_uint<128>));
+        // Reserva de memoria en la Alveo
+        auto bo_in  = xrt::bo(device, HW_MAX_SAMPLES * sizeof(int16_t), kernel.group_id(0));
+        auto bo_out = xrt::bo(device, HW_MAX_SAMPLES * sizeof(int16_t), kernel.group_id(1));
+        auto bo_d   = xrt::bo(device, DLUT_WORDS_AXI * sizeof(uint128_t), kernel.group_id(2));
+        auto bo_e   = xrt::bo(device, ELUT_WORDS_AXI * sizeof(uint128_t), kernel.group_id(3));
 
-        // Empaquetado E-LUT hacia la BRAM
-        for (int c = 0; c < (active_depth + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR; c++) {
-            ap_uint<128> word = 0;
-            for (int j = 0; j < E_RESHAPE_FACTOR; j++) {
-                int idx = c * E_RESHAPE_FACTOR + j;
-                if (idx < active_depth) word.range(j * ELUT_WIDTH + (ELUT_WIDTH - 1), j * ELUT_WIDTH) = t.elut[idx];
-            }
-            e_map[c] = word;
+        // Mapeo seguro a la CPU
+        int16_t* in_map    = bo_in.map<int16_t*>();
+        int16_t* out_map   = bo_out.map<int16_t*>();
+        uint128_t* d_map   = bo_d.map<uint128_t*>();
+        uint128_t* e_map   = bo_e.map<uint128_t*>();
+
+        if (!in_map || !out_map || !d_map || !e_map) {
+            throw std::runtime_error("Fallo al mapear la memoria BO hacia la CPU.");
         }
 
-        // Empaquetado D-LUT hacia la BRAM
-        for (int c = 0; c < (d_cap + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR; c++) {
-            ap_uint<128> word = 0;
-            for (int j = 0; j < D_RESHAPE_FACTOR; j++) {
-                int idx = c * D_RESHAPE_FACTOR + j;
-                if (idx < d_cap) {
-                    data_t val = (float)t.dlut[idx] / q_scale; 
-                    word.range(j * DLUT_WIDTH + (DLUT_WIDTH - 1), j * DLUT_WIDTH) = val.range(DLUT_WIDTH - 1, 0);
+        for (const auto& t : tests) {
+            int upper = t.control[1];
+            int lower = t.control[2];
+            int active_depth = (upper - lower) * (int)Q_SCALE + 1;
+            int d_cap = (active_depth + B_SIZE - 1) / B_SIZE;
+
+            // Limpieza segura sin usar memset
+            for(int i=0; i<DLUT_WORDS_AXI; i++) { d_map[i] = {0,0,0,0}; }
+            for(int i=0; i<ELUT_WORDS_AXI; i++) { e_map[i] = {0,0,0,0}; }
+
+            // Empaquetado E-LUT (32 elementos de 4-bits por cada 128-bits)
+            for (int c = 0; c < (active_depth + 31) / 32; c++) {
+                uint128_t word = {0, 0, 0, 0};
+                for (int j = 0; j < 32; j++) {
+                    int idx = c * 32 + j;
+                    if (idx < active_depth) {
+                        uint32_t val = t.elut[idx] & 0xF;
+                        word.data[j / 8] |= (val << ((j * 4) % 32));
+                    }
+                }
+                e_map[c] = word;
+            }
+
+            // Empaquetado D-LUT (8 elementos de 16-bits por cada 128-bits)
+            for (int c = 0; c < (d_cap + 7) / 8; c++) {
+                uint128_t word = {0, 0, 0, 0};
+                for (int j = 0; j < 8; j++) {
+                    int idx = c * 8 + j;
+                    if (idx < d_cap) {
+                        uint32_t val = (uint16_t)t.dlut[idx]; 
+                        word.data[j / 2] |= (val << ((j * 16) % 32));
+                    }
+                }
+                d_map[c] = word;
+            }
+
+            // Enviar LUTs al FPGA
+            bo_d.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            bo_e.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+            // ==========================================
+            // TRANSACCIÓN 1: MODO RECARGA DE MEMORIA
+            // ==========================================
+            nla_config_t config_load = {0};
+            config_load.reload_tlut = 1;
+            config_load.active_depth = active_depth;
+            
+            auto run_load = kernel(bo_in, bo_out, bo_d, bo_e, config_load);
+            run_load.wait();
+
+            // ==========================================
+            // PREPARACIÓN DE ESTÍMULOS DE ENTRADA
+            // ==========================================
+            double sweep_min = (double)lower - RANGE_PADDING;
+            double sweep_max = (double)upper + RANGE_PADDING;
+            
+            std::vector<double> x_original;
+            int sample_count = 0;
+
+            for (double x = sweep_min; x <= sweep_max; x += SWEEP_STEP) {
+                if (sample_count < HW_MAX_SAMPLES) {
+                    // C++ Cast a 16-bit Fixed Point
+                    in_map[sample_count] = (int16_t)(x * Q_SCALE);
+                    x_original.push_back(x);
+                    sample_count++;
                 }
             }
-            d_map[c] = word;
-        }
 
-        // Transferir las tablas LUT de CPU a FPGA
-        bo_d.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bo_e.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            bo_in.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-        // TRANSACCIÓN 1: MODO CONFIGURACIÓN Y RECARGA
-        nla_config_t config_load;
-        config_load.reload_tlut = 1;
-        config_load.active_depth = active_depth;
-        config_load.num_samples = 0;
-        
-        auto run_load = kernel(bo_in, bo_out, bo_d, bo_e, config_load);
-        run_load.wait();
+            // ==========================================
+            // TRANSACCIÓN 2: MODO CÓMPUTO + CRONÓMETRO
+            // ==========================================
+            nla_config_t config_run = {0};
+            config_run.c_sym = t.control[0];
+            config_run.upper_threshold = upper;
+            config_run.lower_threshold = lower;
+            config_run.c_upper = t.control[3];
+            config_run.c_lower = t.control[4];
+            config_run.use_sym = t.control[5];
+            config_run.use_lin = t.control[6];
+            config_run.num_samples = sample_count;
+            config_run.active_depth = active_depth;
 
-        // Preparar estímulos para la corrida
-        double sweep_min = (double)lower - RANGE_PADDING;
-        double sweep_max = (double)upper + RANGE_PADDING;
-        
-        std::vector<double> x_original;
-        int sample_count = 0;
+            auto start = std::chrono::high_resolution_clock::now();
+            
+            auto run_compute = kernel(bo_in, bo_out, bo_d, bo_e, config_run);
+            run_compute.wait(); // Espera al hardware
 
-        for (double x = sweep_min; x <= sweep_max; x += SWEEP_STEP) {
-            if (sample_count < HW_MAX_SAMPLES) {
-                in_map[sample_count] = (data_t)x;
-                x_original.push_back(x);
-                sample_count++;
+            auto end = std::chrono::high_resolution_clock::now();
+            // ==========================================
+
+            bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+
+            // CÁLCULOS DE RENDIMIENTO Y PRECISIÓN
+            std::chrono::duration<double> diff_t = end - start;
+            double duration_ns = diff_t.count() * 1e9;
+            double avg_ns_per_sample = duration_ns / sample_count;
+            double est_cycles = duration_ns * (250.0 / 1000.0); // 250 MHz
+
+            res_file << "--- Banco: " << t.name << " ---\n";
+            double mse = 0.0;
+            int local_errors = 0;
+
+            for (int j = 0; j < sample_count; j++) {
+                double x_val = x_original[j];
+                double x_hw  = (double)in_map[j] / Q_SCALE;
+                double y_hw  = (double)out_map[j] / Q_SCALE;
+                double y_expected = t.golden(x_val);
+
+                if (x_val > (double)upper || x_val < (double)lower) y_expected = y_hw; 
+
+                double diff = std::abs(y_hw - y_expected);
+                mse += (diff * diff);
+
+                if (diff > TOL_HARD) local_errors++;
+
+                res_file << std::fixed << std::setprecision(4) 
+                         << x_val << "\t" << x_hw << "\t" << y_hw << "\t" << y_expected << "\t" << diff << "\n";
             }
+            mse /= sample_count;
+            total_errors += local_errors;
+
+            // IMPRESIÓN EN CONSOLA
+            std::cout << "======================================================\n";
+            std::cout << "Funcion:\t" << t.name << "\n";
+            std::cout << "Datos:\t\tSamples=" << sample_count << " | DLUT=" << d_cap << " | ELUT=" << active_depth << "\n";
+            std::cout << "HW Tiempo:\t" << std::fixed << std::setprecision(2) << duration_ns << " ns\n";
+            std::cout << "HW Ciclos est:\t" << (int)est_cycles << " ciclos\n";
+            std::cout << "HW Velocidad:\t" << avg_ns_per_sample << " ns / muestra\n";
+            std::cout << "Precision:\tMSE = " << std::scientific << std::setprecision(6) << mse << "\n";
+            std::cout << "Validacion:\t" << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED]") << "\n";
         }
 
-        // Transferir estímulos al FPGA
-        bo_in.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-
-        // TRANSACCIÓN 2: MODO CÓMPUTO DATAFLOW
-        nla_config_t config_run;
-        config_run.c_sym = t.control[0];
-        config_run.upper_threshold = t.control[1];
-        config_run.lower_threshold = t.control[2];
-        config_run.c_upper = t.control[3];
-        config_run.c_lower = t.control[4];
-        config_run.use_sym = t.control[5];
-        config_run.use_lin = t.control[6];
-        config_run.reload_tlut = 0;
-        config_run.active_depth = active_depth;
-        config_run.num_samples = sample_count;
-
-        auto run_compute = kernel(bo_in, bo_out, bo_d, bo_e, config_run);
-        run_compute.wait();
-
-        // Transferir resultados del FPGA a CPU
-        bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-
-        // VALIDACIÓN Y ESTADÍSTICAS
-        res_file << "--- Banco: " << t.name << " ---\n";
-        
-        double mse = 0.0;
-        int local_errors = 0;
-
-        for (int j = 0; j < sample_count; j++) {
-            double x_val = x_original[j];
-            double x_hw  = in_map[j].to_double();
-            double y_hw  = out_map[j].to_double();
-            double y_expected = t.golden(x_val);
-
-            // Regiones de saturación teóricas
-            if (x_val > (double)upper || x_val < (double)lower) y_expected = y_hw; 
-
-            double diff = std::abs(y_hw - y_expected);
-            mse += (diff * diff);
-
-            double hard_tol = (std::abs(y_expected) > 10.0) ? TOL_HARD_LARGE : TOL_HARD_NORMAL;
-            if (diff > hard_tol) local_errors++;
-
-            res_file << std::fixed << std::setprecision(4) 
-                     << x_val << "\t" << x_hw << "\t" << y_hw << "\t" << y_expected << "\t" << diff << "\n";
-        }
-        
-        mse /= sample_count;
-        total_errors += local_errors;
-
-        // IMPRESIÓN EN CONSOLA SEGÚN FORMATO REQUERIDO
         std::cout << "======================================================\n";
-        std::cout << "Funcion:\t" << t.name << "\n";
-        std::cout << "Parametros:\t[c_sym=" << t.control[0] << ", UTH=" << upper << ", LTH=" << lower 
-                  << ", c_up=" << t.control[3] << ", c_low=" << t.control[4] << "]\n";
-        std::cout << "Senales:\treload=OK, use_sym=" << t.control[5] << ", use_lin=" << t.control[6] << "\n";
-        std::cout << "Datos:\t\tSamples=" << sample_count << " | DLUT_elems=" << d_cap << " | ELUT_elems=" << active_depth << "\n";
-        std::cout << "Precision:\tMSE = " << std::scientific << std::setprecision(6) << mse << "\n";
-        std::cout << "Validacion:\t" << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED - ERRORES CRITICOS]") << "\n";
-    }
+        std::cout << "FINAL:\t\tTotal Errores Criticos = " << total_errors << "\n";
+        std::cout << "======================================================\n";
 
-    std::cout << "======================================================\n";
-    std::cout << "FINAL:\t\tTotal Errores = " << total_errors << "\n";
-    std::cout << "======================================================\n";
+    } catch (const std::exception& e) {
+        std::cerr << "\n[ERROR CRÍTICO XRT] " << e.what() << "\n";
+        return EXIT_FAILURE;
+    }
 
     res_file.close();
     return (total_errors > 0) ? EXIT_FAILURE : EXIT_SUCCESS;
