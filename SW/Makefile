@@ -1,12 +1,15 @@
+# Evitar que exija la VERSION si solo estamos haciendo un "make clean"
+ifeq ($(filter clean,$(MAKECMDGOALS)),)
 ifndef VERSION
 $(error Debes especificar la version a usar. Ejemplo: make run VERSION=v2)
+endif
 endif
 
 # Archivos fuente y ejecutables
 SOURCES := hw_tb.cpp
 EXECUTABLES := nla_hw_test
 
-# Banderas estrictas (Tal cual el ejemplo)
+# Banderas estrictas
 CFLAGS := -I/opt/xilinx/xrt/include -Wall -std=c++17 -O0 -g -I. -I./hls-types/include
 LDFLAGS := -L/opt/xilinx/xrt/lib -pthread -lxrt_core -lxrt_coreutil
 
@@ -19,8 +22,8 @@ XCLBIN := ../HW/package.$(TARGET).$(VERSION)/kernels_$(VERSION).xclbin
 # Default target
 all: $(EXECUTABLES)
 
-# Regla de compilación original
-$(EXECUTABLES): %: %.cpp
+# Apunta explícitamente a hw_tb.cpp
+$(EXECUTABLES): $(SOURCES)
 	$(CXX) -o $@ $< $(CFLAGS) $(LDFLAGS)
 
 # Regla para ejecutar el bitstream dinámico
