@@ -8,7 +8,7 @@ add_files nla_core.cpp
 add_files -tb nla_tb.cpp
 open_solution -reset "solution1" -flow_target vitis
 set_part {xck26-sfvc784-2LV-c}
-create_clock -period 100MHz -name default
+create_clock -period 250MHz -name default
 config_dataflow -strict_mode warning
 csim_design
 csynth_design

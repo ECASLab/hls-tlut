@@ -12,21 +12,21 @@
 #include <vector>
 
 #include "nla_core.h"
-#include "../tluts_B16.h"
+#include "../tluts_B16.h" 
 
-// Funciones Golden de referencia (Matemática ideal en software)
-double g_sigmoid(double x) { return 1.0 / (1.0 + std::exp(-x)); }
-double g_tanh(double x) { return std::tanh(x); }
+// Funciones Golden de referencia
+double g_sigmoid(double x)  { return 1.0 / (1.0 + std::exp(-x)); }
+double g_tanh(double x)     { return std::tanh(x); }
 double g_softsign(double x) { return x / (1.0 + std::abs(x)); }
-double g_erf(double x) { return std::erf(x); }
-double g_swish(double x) { return x / (1.0 + std::exp(-x)); }
-double g_gelu(double x) { return 0.5 * x * (1.0 + std::erf(x / std::sqrt(2.0))); }
+double g_erf(double x)      { return std::erf(x); }
+double g_swish(double x)    { return x / (1.0 + std::exp(-x)); }
+double g_gelu(double x)     { return 0.5 * x * (1.0 + std::erf(x / std::sqrt(2.0))); }
 double g_softplus(double x) { return std::log(1.0 + std::exp(x)); }
-double g_mish(double x) { return x * std::tanh(std::log(1.0 + std::exp(x))); }
-double g_elu(double x) { return (x < 0.0) ? (std::exp(x) - 1.0) : x; }
-double g_exp(double x) { return std::exp(x); }
-double g_sqrt(double x) { return (x >= 0.0) ? std::sqrt(x) : 0.0; }
-double g_relu(double x) { return (x > 0.0) ? x : 0.0; }
+double g_mish(double x)     { return x * std::tanh(std::log(1.0 + std::exp(x))); }
+double g_elu(double x)      { return (x < 0.0) ? (std::exp(x) - 1.0) : x; }
+double g_exp(double x)      { return std::exp(x); }
+double g_sqrt(double x)     { return (x >= 0.0) ? std::sqrt(x) : 0.0; }
+double g_relu(double x)     { return (x > 0.0) ? x : 0.0; }
 
 struct TestCase {
     std::string name;
@@ -37,6 +37,24 @@ struct TestCase {
 };
 
 int main() {
+    // =========================================================================
+    // CONFIGURACIÓN DE PARÁMETROS DE SIMULACIÓN
+    // =========================================================================
+    const double SWEEP_STEP         = 0.1;   
+    const bool   USE_FIXED_RANGE    = false; 
+    const double FIXED_RANGE_MIN    = -8.0;  
+    const double FIXED_RANGE_MAX    = 8.0;   
+    const double RANGE_PADDING      = 1.0;   
+    
+    const double TOL_SOFT_NORMAL    = 0.05;
+    const double TOL_HARD_NORMAL    = 0.15;
+    const double TOL_SOFT_LARGE     = 0.15;  
+    const double TOL_HARD_LARGE     = 0.40;  
+
+    // Este valor debe coincidir con el 'depth' puesto en el pragma m_axi de in/out_data
+    const int HW_MAX_SAMPLES = 100000; 
+    // =========================================================================
+
     std::ofstream log_file("nla_sim.log");
     std::ofstream res_file("nla_results.txt");
 
@@ -55,50 +73,48 @@ int main() {
         {"RELU", RELU_DLUT, RELU_ELUT, RELU_CONTROL, g_relu}
     };
 
-    // Arreglos empaquetados para simular la memoria principal del ARM a 128 bits
-    axi_word_t d_lut_packed[(DLUT_DEPTH + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR];
-    axi_word_t e_lut_packed[(ELUT_DEPTH + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR];
+    // --- DERIVACIÓN AUTOMÁTICA DE TAMAÑOS ---
+    // Usamos las constantes del .h para que el TB sea agnóstico a cambios de arquitectura
+    axi_word_t d_lut_packed[DLUT_DEPTH / D_RESHAPE_FACTOR];
+    axi_word_t e_lut_packed[ELUT_DEPTH / E_RESHAPE_FACTOR];
 
-    // Contadores globales
+    // Buffers de datos pre-asignados al tamaño máximo del hardware para evitar SIGSEGV en COSIM
+    std::vector<data_t> in_buffer(HW_MAX_SAMPLES, 0);
+    std::vector<data_t> out_buffer(HW_MAX_SAMPLES, 0);
+
     int total_errors = 0;
     int total_warnings = 0;
+    double q_scale = (double)(1 << (Q_TOT_WIDTH - Q_INT_WIDTH)); 
 
-    int frac_width = Q_TOT_WIDTH - Q_INT_WIDTH;
-    double q_scale = (double)(1 << frac_width); 
+    std::cout << "Iniciando validacion Hardware (AXI Memory Mapped)...\n\n";
 
     for (size_t i = 0; i < tests.size(); i++) {
         TestCase t = tests[i];
-
-        log_file << "========================================\n";
-        log_file << "Iniciando validacion hardware para funcion: " << t.name << "\n";
+        int local_errors = 0;
 
         int upper = t.control[1];
         int lower = t.control[2];
-        
         int active_depth = (upper - lower) * (int)q_scale + 1;
         int d_cap = (active_depth + B_SIZE - 1) / B_SIZE;
 
-        // Empaquetado E-LUT (Fragmentos de E_RESHAPE_FACTOR elementos por palabra de 128 bits)
-        int e_chunks = (active_depth + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR;
-        for (int c = 0; c < e_chunks; c++) {
+        // --- EMPAQUETADO DINÁMICO ---
+        // Empaquetado E-LUT
+        for (int c = 0; c < (active_depth + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR; c++) {
             axi_word_t word = 0;
             for (int j = 0; j < E_RESHAPE_FACTOR; j++) {
                 int idx = c * E_RESHAPE_FACTOR + j;
-                if (idx < active_depth) {
+                if (idx < active_depth) 
                     word.range(j * ELUT_WIDTH + (ELUT_WIDTH - 1), j * ELUT_WIDTH) = t.elut[idx];
-                }
             }
             e_lut_packed[c] = word;
         }
 
-        // Empaquetado D-LUT (Fragmentos de D_RESHAPE_FACTOR elementos por palabra de 128 bits)
-        int d_chunks = (d_cap + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR;
-        for (int c = 0; c < d_chunks; c++) {
+        // Empaquetado D-LUT
+        for (int c = 0; c < (d_cap + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR; c++) {
             axi_word_t word = 0;
             for (int j = 0; j < D_RESHAPE_FACTOR; j++) {
                 int idx = c * D_RESHAPE_FACTOR + j;
                 if (idx < d_cap) {
-                    // Conversión al tipo ap_fixed configurado para obtener los bits exactos
                     data_t val = (float)t.dlut[idx] / q_scale; 
                     word.range(j * DLUT_WIDTH + (DLUT_WIDTH - 1), j * DLUT_WIDTH) = val.range(DLUT_WIDTH - 1, 0);
                 }
@@ -106,22 +122,31 @@ int main() {
             d_lut_packed[c] = word;
         }
 
+        // --- TRANSACCIÓN 1: RECARGA DE TABLAS ---
         nla_config_t config_load;
         config_load.reload_tlut = 1;
         config_load.active_depth = active_depth;
         config_load.num_samples = 0; 
+        
+        // Pasamos in_buffer aunque no se use, para satisfacer el wrapper de COSIM
+        nla_top(in_buffer.data(), out_buffer.data(), d_lut_packed, e_lut_packed, config_load);
 
-        hls::stream<axis_t> dummy_in;
-        hls::stream<axis_t> dummy_out;
+        // --- PREPARACIÓN DE ESTÍMULOS ---
+        double sweep_min = USE_FIXED_RANGE ? FIXED_RANGE_MIN : ((double)lower - RANGE_PADDING);
+        double sweep_max = USE_FIXED_RANGE ? FIXED_RANGE_MAX : ((double)upper + RANGE_PADDING);
+        
+        std::vector<double> x_original; 
+        int sample_count = 0;
 
-        log_file << "Modo configuracion: Transmitiendo tablas empaquetadas (128-bit) por AXI-Master...\n";
-        nla_top(dummy_in, dummy_out, d_lut_packed, e_lut_packed, config_load);
-
-        std::vector<double> x_stim;
-        for (double x = -8.0; x <= 8.0; x += 0.2) {
-            x_stim.push_back(x);
+        for (double x = sweep_min; x <= sweep_max; x += SWEEP_STEP) {
+            if (sample_count < HW_MAX_SAMPLES) {
+                in_buffer[sample_count] = (data_t)x;
+                x_original.push_back(x);
+                sample_count++;
+            }
         }
 
+        // --- TRANSACCIÓN 2: CÓMPUTO ---
         nla_config_t config_run;
         config_run.c_sym = t.control[0];
         config_run.upper_threshold = t.control[1];
@@ -132,79 +157,46 @@ int main() {
         config_run.use_lin = t.control[6];
         config_run.reload_tlut = 0;
         config_run.active_depth = active_depth;
-        config_run.num_samples = x_stim.size();
+        config_run.num_samples = sample_count;
 
-        hls::stream<axis_t> strm_in;
-        hls::stream<axis_t> strm_out;
+        nla_top(in_buffer.data(), out_buffer.data(), d_lut_packed, e_lut_packed, config_run);
 
-        log_file << "Modo computo: Generando vector de estimulos X en el rango [-8.0, 8.0]...\n";
+        // --- VALIDACIÓN ---
         res_file << "--- Banco de Resultados: " << t.name << " ---\n";
-        res_file << "X_original\tY_hw\t\tY_esperado\tDesviacion\n";
-
-        for (size_t j = 0; j < x_stim.size(); j++) {
-            axis_t val_in;
-            val_in.data = x_stim[j];
-            strm_in.write(val_in);
-        }
-
-        nla_top(strm_in, strm_out, d_lut_packed, e_lut_packed, config_run);
-
-        for (size_t j = 0; j < x_stim.size(); j++) {
-            axis_t val_out = strm_out.read();
-            double x_val = x_stim[j];
-            double y_hw = val_out.data.to_double();
+        for (int j = 0; j < sample_count; j++) {
+            double x_val = x_original[j];
+            double y_hw = out_buffer[j].to_double();
             double y_expected = t.golden(x_val);
 
-            if (x_val > (double)upper || x_val < (double)lower) {
-                y_expected = y_hw;
-            }
+            if (x_val > (double)upper || x_val < (double)lower) y_expected = y_hw; 
 
             double diff = std::abs(y_hw - y_expected);
+            double soft_tol = (std::abs(y_expected) > 10.0) ? TOL_SOFT_LARGE : TOL_SOFT_NORMAL;
+            double hard_tol = (std::abs(y_expected) > 10.0) ? TOL_HARD_LARGE : TOL_HARD_NORMAL;
 
-            double soft_tolerance = 0.05;
-            double hard_tolerance = 0.15;
+            res_file << std::fixed << std::setprecision(4) << x_val << "\t" << y_hw << "\t" << y_expected << "\t" << diff << "\n";
 
-            if (y_expected > 10.0) {
-                soft_tolerance = 0.15;
-                hard_tolerance = 0.40;
-            }
-
-            res_file << std::fixed << std::setprecision(4) << x_val << "\t\t" << y_hw << "\t\t" << y_expected << "\t\t" << diff << "\n";
-
-            if (diff > hard_tolerance) {
-                log_file << "[ERROR CRITICO] Desviacion INACEPTABLE en X = " << x_val 
-                         << " | Y_HW = " << y_hw << " | Y_Ideal = " << y_expected 
-                         << " | Diff = " << diff << "\n";
+            if (diff > hard_tol) {
+                log_file << "[ERR] " << t.name << " X=" << x_val << " HW=" << y_hw << " Exp=" << y_expected << "\n";
+                local_errors++;
                 total_errors++;
-            } else if (diff > soft_tolerance) {
-                log_file << "[ADVERTENCIA] Desviacion leve (Aceptada) en X = " << x_val 
-                         << " | Y_HW = " << y_hw << " | Y_Ideal = " << y_expected 
-                         << " | Diff = " << diff << "\n";
+            } else if (diff > soft_tol) {
                 total_warnings++;
             }
         }
 
-        log_file << "Cierre de pipeline de pruebas para modulo " << t.name << " exitoso.\n\n";
-        res_file << "\n";
+        // --- SALIDA A CONSOLA ---
+        if (local_errors == 0) {
+            std::cout << "  [\u2713] " << t.name << std::endl; 
+        } else {
+            std::cout << "  [X] " << t.name << " (" << local_errors << " errores)" << std::endl;
+        }
     }
 
-    std::cout << "\n======================================================\n";
-    std::cout << "               RESUMEN DE SIMULACION HLS                \n";
-    std::cout << "======================================================\n";
-    std::cout << " -> Total de Advertencias Leves (Ignoradas): " << total_warnings << "\n";
-    std::cout << " -> Total de Errores Criticos (Fallos):      " << total_errors << "\n";
-    std::cout << "======================================================\n";
+    std::cout << "\n------------------------------------------------------\n";
+    std::cout << " Warnings: " << total_warnings << " | Errors: " << total_errors << std::endl;
+    std::cout << "------------------------------------------------------\n";
 
-    if (total_errors == 0) {
-        log_file << ">>> REPORTE FINAL: SIMULACION CSIM/COSIM SUPERADA SIN ERRORES CRITICOS <<<\n";
-        std::cout << "\n[PASS] Testbench completado exitosamente. Las desviaciones estuvieron dentro de los limites.\n\n";
-    } else {
-        log_file << ">>> REPORTE FINAL: SIMULACION COMPROMETIDA. " << total_errors << " ERRORES CRITICOS DETECTADOS <<<\n";
-        std::cout << "\n[FAIL] Testbench abortado con " << total_errors << " errores criticos. Consulte nla_sim.log para detalles.\n\n";
-    }
-
-    log_file.close();
-    res_file.close();
-
-    return (total_errors > 0) ? 1 : 0;
+    log_file.close(); res_file.close();
+    return (total_errors > 0);
 }

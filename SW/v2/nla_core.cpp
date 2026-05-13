@@ -6,7 +6,39 @@
 
 #include "nla_core.h"
 
-void address_generation(hls::stream<axis_t>& in_stream, hls::stream<s1_to_s2_t>& out_stream, nla_config_t config) {
+// --- FUNCIONES WRAPPERS PARA ALIMENTAR EL DATAFLOW DESDE LA MEMORIA GLOBAL ---
+void read_input(
+    data_t* in_mem,
+    hls::stream<data_t>& out_stream,
+    ap_uint<32> num_samples
+) {
+#pragma HLS INLINE off
+    for (ap_uint<32> i = 0; i < num_samples; ++i) {
+#pragma HLS PIPELINE II = 1
+#pragma HLS LOOP_TRIPCOUNT min=41 max=181 avg=120
+        out_stream.write(in_mem[i]);
+    }
+}
+
+void write_output(
+    hls::stream<data_t>& in_stream,
+    data_t* out_mem,
+    ap_uint<32> num_samples
+) {
+#pragma HLS INLINE off
+    for (ap_uint<32> i = 0; i < num_samples; ++i) {
+#pragma HLS PIPELINE II = 1
+#pragma HLS LOOP_TRIPCOUNT min=41 max=181 avg=120
+        out_mem[i] = in_stream.read();
+    }
+}
+
+// --- PIPELINES DE PROCESAMIENTO ---
+void address_generation(
+    hls::stream<data_t>& in_stream,
+    hls::stream<s1_to_s2_t>& out_stream,
+    nla_config_t config
+) {
 #pragma HLS INLINE off
     const ap_uint<32> num_samples = config.num_samples;
     if (num_samples == 0)
@@ -14,9 +46,8 @@ void address_generation(hls::stream<axis_t>& in_stream, hls::stream<s1_to_s2_t>&
 
     for (ap_uint<32> i = 0; i < num_samples; ++i) {
 #pragma HLS PIPELINE II = 1
-#pragma HLS LOOP_TRIPCOUNT min = 1 max = 100000 avg = 81
-        axis_t in_val = in_stream.read();
-        data_t x = in_val.data;
+#pragma HLS LOOP_TRIPCOUNT min=41 max=181 avg=120
+        data_t x = in_stream.read();
         s1_to_s2_t out_pkt;
         out_pkt.en_mem = 0;
         out_pkt.address = 0;
@@ -39,7 +70,13 @@ void address_generation(hls::stream<axis_t>& in_stream, hls::stream<s1_to_s2_t>&
     }
 }
 
-void memory_access(hls::stream<s1_to_s2_t>& in_stream, hls::stream<s2_to_s3_t>& out_stream, dlut_t d_lut_bram[DLUT_DEPTH], elut_t e_lut_bram[ELUT_DEPTH], nla_config_t config) {
+void memory_access(
+    hls::stream<s1_to_s2_t>& in_stream,
+    hls::stream<s2_to_s3_t>& out_stream,
+    dlut_t d_lut_bram[DLUT_DEPTH],
+    elut_t e_lut_bram[ELUT_DEPTH],
+    nla_config_t config
+) {
 #pragma HLS INLINE off
     const ap_uint<32> num_samples = config.num_samples;
     if (num_samples == 0)
@@ -47,7 +84,7 @@ void memory_access(hls::stream<s1_to_s2_t>& in_stream, hls::stream<s2_to_s3_t>& 
 
     for (ap_uint<32> i = 0; i < num_samples; ++i) {
 #pragma HLS PIPELINE II = 1
-#pragma HLS LOOP_TRIPCOUNT min = 1 max = 100000 avg = 81
+#pragma HLS LOOP_TRIPCOUNT min=41 max=181 avg=120
         s1_to_s2_t in_val = in_stream.read();
         s2_to_s3_t out_pkt;
         out_pkt.d_val = 0;
@@ -63,7 +100,11 @@ void memory_access(hls::stream<s1_to_s2_t>& in_stream, hls::stream<s2_to_s3_t>& 
     }
 }
 
-void output_reconstruction(hls::stream<s2_to_s3_t>& in_stream, hls::stream<axis_t>& out_stream, nla_config_t config) {
+void output_reconstruction(
+    hls::stream<s2_to_s3_t>& in_stream,
+    hls::stream<data_t>& out_stream,
+    nla_config_t config
+) {
 #pragma HLS INLINE off
     const ap_uint<32> num_samples = config.num_samples;
     if (num_samples == 0)
@@ -71,9 +112,9 @@ void output_reconstruction(hls::stream<s2_to_s3_t>& in_stream, hls::stream<axis_
 
     for (ap_uint<32> i = 0; i < num_samples; ++i) {
 #pragma HLS PIPELINE II = 1
-#pragma HLS LOOP_TRIPCOUNT min = 1 max = 100000 avg = 81
+#pragma HLS LOOP_TRIPCOUNT min=41 max=181 avg=120
         s2_to_s3_t in_val = in_stream.read();
-        axis_t out_pkt;
+        data_t out_data_val;
         data_t e_val_fix = 0;
         e_val_fix.range(ELUT_WIDTH - 1, 0) = in_val.e_val;
         data_t lut_out = in_val.d_val + e_val_fix;
@@ -82,18 +123,23 @@ void output_reconstruction(hls::stream<s2_to_s3_t>& in_stream, hls::stream<axis_
         data_t sym_out = (config.use_sym && sign) ? c_sum_val : lut_out;
 
         switch (in_val.cmp_flag) {
-            case 0: out_pkt.data = config.c_lower; break;
-            case 1: out_pkt.data = sym_out; break;
-            case 2: out_pkt.data = config.c_upper; break;
-            case 3: out_pkt.data = in_val.x_input; break;
-            default: out_pkt.data = in_val.x_input; break;
+            case 0: out_data_val = config.c_lower; break;
+            case 1: out_data_val = sym_out; break;
+            case 2: out_data_val = config.c_upper; break;
+            case 3: out_data_val = in_val.x_input; break;
+            default: out_data_val = in_val.x_input; break;
         }
-        out_stream.write(out_pkt);
+        out_stream.write(out_data_val);
     }
 }
 
-// [OPTIMIZADO] Recarga masiva de 128 bits
-void reload_memory(axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, dlut_t d_lut_bram[DLUT_DEPTH], elut_t e_lut_bram[ELUT_DEPTH], ap_uint<ADDR_WIDTH + 1> active_depth) {
+void reload_memory(
+    axi_word_t* d_lut_mem,
+    axi_word_t* e_lut_mem,
+    dlut_t d_lut_bram[DLUT_DEPTH],
+    elut_t e_lut_bram[ELUT_DEPTH],
+    ap_uint<ADDR_WIDTH + 1> active_depth
+) {
 #pragma HLS INLINE off
 
     ap_uint<ADDR_WIDTH + 1> depth = (active_depth > MAX_DEPTH) ? (ap_uint<ADDR_WIDTH + 1>)MAX_DEPTH : active_depth;
@@ -102,6 +148,7 @@ void reload_memory(axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, dlut_t d_lut_br
     int e_chunks = (depth + E_RESHAPE_FACTOR - 1) / E_RESHAPE_FACTOR;
     for (int i = 0; i < e_chunks; ++i) {
 #pragma HLS PIPELINE II = 1
+#pragma HLS LOOP_TRIPCOUNT min=1 max=512 avg=512
         axi_word_t chunk = e_lut_mem[i];
         for (int j = 0; j < E_RESHAPE_FACTOR; ++j) {
 #pragma HLS UNROLL
@@ -116,6 +163,7 @@ void reload_memory(axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, dlut_t d_lut_br
     int d_chunks = (d_total_elements + D_RESHAPE_FACTOR - 1) / D_RESHAPE_FACTOR;
     for (int i = 0; i < d_chunks; ++i) {
 #pragma HLS PIPELINE II = 1
+#pragma HLS LOOP_TRIPCOUNT min=1 max=128 avg=128
         axi_word_t chunk = d_lut_mem[i];
         for (int j = 0; j < D_RESHAPE_FACTOR; ++j) {
 #pragma HLS UNROLL
@@ -128,24 +176,48 @@ void reload_memory(axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, dlut_t d_lut_br
     }
 }
 
-static void process_dataflow(hls::stream<axis_t>& in, hls::stream<axis_t>& out, dlut_t db[DLUT_DEPTH], elut_t eb[ELUT_DEPTH], nla_config_t cfg) {
+static void process_dataflow(
+    data_t* in_data,
+    data_t* out_data,
+    dlut_t db[DLUT_DEPTH],
+    elut_t eb[ELUT_DEPTH],
+    nla_config_t cfg
+) {
 #pragma HLS INLINE off
 #pragma HLS DATAFLOW
+
+    hls::stream<data_t> s_in;
     hls::stream<s1_to_s2_t> s1_s2;
     hls::stream<s2_to_s3_t> s2_s3;
+    hls::stream<data_t> s_out;
+
+#pragma HLS STREAM variable = s_in depth = 32
 #pragma HLS STREAM variable = s1_s2 depth = 32
 #pragma HLS STREAM variable = s2_s3 depth = 32
-    address_generation(in, s1_s2, cfg);
+#pragma HLS STREAM variable = s_out depth = 32
+
+    read_input(in_data, s_in, cfg.num_samples);
+    address_generation(s_in, s1_s2, cfg);
     memory_access(s1_s2, s2_s3, db, eb, cfg);
-    output_reconstruction(s2_s3, out, cfg);
+    output_reconstruction(s2_s3, s_out, cfg);
+    write_output(s_out, out_data, cfg.num_samples);
 }
 
 extern "C" {
-void nla_top(hls::stream<axis_t>& in_data, hls::stream<axis_t>& out_data, axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, nla_config_t config) {
-#pragma HLS INTERFACE axis port = in_data
-#pragma HLS INTERFACE axis port = out_data
+void nla_top(
+    data_t* in_data,
+    data_t* out_data,
+    axi_word_t* d_lut_mem,
+    axi_word_t* e_lut_mem,
+    nla_config_t config
+) {
+#pragma HLS INTERFACE m_axi port = in_data offset = slave bundle = gmem_in depth = 100000
+#pragma HLS INTERFACE m_axi port = out_data offset = slave bundle = gmem_out depth = 100000
 #pragma HLS INTERFACE m_axi port = d_lut_mem offset = slave bundle = gmem_d depth = (DLUT_DEPTH / D_RESHAPE_FACTOR)
 #pragma HLS INTERFACE m_axi port = e_lut_mem offset = slave bundle = gmem_e depth = (ELUT_DEPTH / E_RESHAPE_FACTOR)
+
+#pragma HLS INTERFACE s_axilite port = in_data bundle = control
+#pragma HLS INTERFACE s_axilite port = out_data bundle = control
 #pragma HLS INTERFACE s_axilite port = d_lut_mem bundle = control
 #pragma HLS INTERFACE s_axilite port = e_lut_mem bundle = control
 #pragma HLS INTERFACE s_axilite port = config bundle = control

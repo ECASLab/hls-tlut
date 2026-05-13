@@ -19,10 +19,6 @@ const int Q_INT_WIDTH = 6;
 // [HARDWARE] Datos de precisión fija
 typedef ap_fixed<Q_TOT_WIDTH, Q_INT_WIDTH, AP_TRN, AP_WRAP> data_t;
 
-struct axis_t {
-    data_t data;
-};
-
 const int ADDR_WIDTH = 14;
 const int MAX_DEPTH = (1 << ADDR_WIDTH);
 
@@ -72,13 +68,42 @@ struct s2_to_s3_t {
 };
 
 // Declaraciones de funciones
-void address_generation(hls::stream<axis_t>& in_stream, hls::stream<s1_to_s2_t>& out_stream, nla_config_t config);
-void memory_access(hls::stream<s1_to_s2_t>& in_stream, hls::stream<s2_to_s3_t>& out_stream, dlut_t d_lut_bram[DLUT_DEPTH], elut_t e_lut_bram[ELUT_DEPTH], nla_config_t config);
-void output_reconstruction(hls::stream<s2_to_s3_t>& in_stream, hls::stream<axis_t>& out_stream, nla_config_t config);
-void reload_memory(axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, dlut_t d_lut_bram[DLUT_DEPTH], elut_t e_lut_bram[ELUT_DEPTH], ap_uint<ADDR_WIDTH + 1> active_depth);
+void address_generation(
+    hls::stream<data_t>& in_stream,
+    hls::stream<s1_to_s2_t>& out_stream,
+    nla_config_t config
+);
+
+void memory_access(
+    hls::stream<s1_to_s2_t>& in_stream,
+    hls::stream<s2_to_s3_t>& out_stream,
+    dlut_t d_lut_bram[DLUT_DEPTH],
+    elut_t e_lut_bram[ELUT_DEPTH],
+    nla_config_t config
+);
+
+void output_reconstruction(
+    hls::stream<s2_to_s3_t>& in_stream,
+    hls::stream<data_t>& out_stream,
+    nla_config_t config
+);
+
+void reload_memory(
+    axi_word_t* d_lut_mem,
+    axi_word_t* e_lut_mem,
+    dlut_t d_lut_bram[DLUT_DEPTH],
+    elut_t e_lut_bram[ELUT_DEPTH],
+    ap_uint<ADDR_WIDTH + 1> active_depth
+);
 
 extern "C" {
-void nla_top(hls::stream<axis_t>& in_data, hls::stream<axis_t>& out_data, axi_word_t* d_lut_mem, axi_word_t* e_lut_mem, nla_config_t config);
+void nla_top(
+    data_t* in_data,
+    data_t* out_data,
+    axi_word_t* d_lut_mem,
+    axi_word_t* e_lut_mem,
+    nla_config_t config
+);
 }
 
 #endif
