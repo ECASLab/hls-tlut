@@ -1,9 +1,3 @@
-/*
- * ----------------------------------------------------------------------------
- * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
- * ----------------------------------------------------------------------------
- */
-
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -18,11 +12,8 @@
 #include "xrt/xrt_kernel.h"
 #include "tluts_B16.h"
 
-// =========================================================================
-// 1. EQUIVALENCIAS Y ESTRUCTURAS
-// =========================================================================
-const double Q_SCALE = 1024.0; // Precisión Q6.10
-const double FPGA_FREQ_MHZ = 250.0; // Frecuencia de reloj del Acelerador
+const double Q_SCALE = 1024.0;
+const double FPGA_FREQ_MHZ = 250.0;
 
 struct uint128_raw {
     uint32_t data[4];
@@ -42,9 +33,6 @@ struct __attribute__((packed)) nla_config_t {
     uint32_t active_depth; 
 };
 
-// =========================================================================
-// 2. REFERENCIAS GOLDEN
-// =========================================================================
 double g_sigmoid(double x)  { return 1.0 / (1.0 + std::exp(-x)); }
 double g_tanh(double x)     { return std::tanh(x); }
 double g_softsign(double x) { return x / (1.0 + std::abs(x)); }
@@ -66,9 +54,6 @@ struct TestCase {
     double (*golden)(double);
 };
 
-// =========================================================================
-// 3. FUNCIÓN PRINCIPAL
-// =========================================================================
 int main(int argc, char **argv) {
     if (argc < 2) {
         std::cerr << "Uso: " << argv[0] << " <xclbin> [version]" << std::endl;
@@ -76,16 +61,22 @@ int main(int argc, char **argv) {
     }
 
     std::string version = (argc >= 3) ? argv[2] : "default";
-    std::string filename = "hw_results_" + version + ".txt";
-    std::ofstream res_file(filename);
+    std::string filename_res = "hw_results_" + version + ".txt";
+    std::string filename_log = "hw_interaction_" + version + ".log";
+    std::ofstream res_file(filename_res);
+    std::ofstream log_file(filename_log);
 
     const int HW_MAX_SAMPLES = 100000;
     const int DLUT_WORDS_AXI = 256;  
     const int ELUT_WORDS_AXI = 1024; 
     const int B_SIZE = 16;
-    const double SWEEP_STEP = 0.1;
+    const double SWEEP_STEP = 0.2;
     const double RANGE_PADDING = 1.0;
     const double TOL_HARD = 0.20;
+
+    const bool SWEEP_MODE_FIXED = true;
+    const double SWEEP_FIXED_MIN = -12.0;
+    const double SWEEP_FIXED_MAX = 12.0;
 
     std::vector<TestCase> tests = {
         {"SIGMOID", SIGMOID_DLUT, SIGMOID_ELUT, SIGMOID_CONTROL, g_sigmoid},
@@ -120,17 +111,17 @@ int main(int argc, char **argv) {
         int total_errors = 0;
 
         for (const auto& t : tests) {
-            // Parámetros de la función
-            int upper = t.control[1];
-            int lower = t.control[2];
-            int active_depth = (upper - lower) * 1024 + 1;
+            int upper_scaled = t.control[1];
+            int lower_scaled = t.control[2];
+            double upper_d = (double)upper_scaled / Q_SCALE;
+            double lower_d = (double)lower_scaled / Q_SCALE;
+
+            int active_depth = (upper_scaled - lower_scaled) + 1;
             int d_cap = (active_depth + B_SIZE - 1) / B_SIZE;
 
-            // Limpieza de memoria
             for(int i=0; i<DLUT_WORDS_AXI; i++) d_map[i] = {0,0,0,0};
             for(int i=0; i<ELUT_WORDS_AXI; i++) e_map[i] = {0,0,0,0};
 
-            // Empaquetado de Tablas
             for (int c = 0; c < (active_depth + 31) / 32; c++) {
                 uint128_raw word = {0, 0, 0, 0};
                 for (int j = 0; j < 32; j++) {
@@ -155,19 +146,27 @@ int main(int argc, char **argv) {
                 d_map[c] = word;
             }
 
-            // [TRANSACCIÓN 1] Carga de LUTs
             bo_d.sync(XCL_BO_SYNC_BO_TO_DEVICE);
             bo_e.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-            nla_config_t cfg = {0};
-            cfg.reload_tlut = 1;
-            cfg.active_depth = active_depth;
-            kernel(bo_in, bo_out, bo_d, bo_e, cfg).wait();
+            nla_config_t cfg_load = {0};
+            cfg_load.reload_tlut = 1;
+            cfg_load.active_depth = active_depth;
 
-            // Preparación de Estímulos
+            auto start_load = std::chrono::high_resolution_clock::now();
+            kernel(bo_in, bo_out, bo_d, bo_e, cfg_load).wait();
+            auto end_load = std::chrono::high_resolution_clock::now();
+
+            double load_duration_ns = std::chrono::duration<double>(end_load - start_load).count() * 1e9;
+            double load_est_cycles = load_duration_ns * (FPGA_FREQ_MHZ / 1000.0);
+
             int sample_count = 0;
             std::vector<double> x_original;
-            for (double x = (double)lower - RANGE_PADDING; x <= (double)upper + RANGE_PADDING; x += SWEEP_STEP) {
+            
+            double sweep_start = SWEEP_MODE_FIXED ? SWEEP_FIXED_MIN : (lower_d - RANGE_PADDING);
+            double sweep_end   = SWEEP_MODE_FIXED ? SWEEP_FIXED_MAX : (upper_d + RANGE_PADDING);
+
+            for (double x = sweep_start; x <= sweep_end; x += SWEEP_STEP) {
                 if (sample_count < HW_MAX_SAMPLES) {
                     in_map[sample_count] = (int16_t)(x * Q_SCALE);
                     x_original.push_back(x);
@@ -176,79 +175,93 @@ int main(int argc, char **argv) {
             }
             bo_in.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-            // [TRANSACCIÓN 2] Fase de Cómputo
-            cfg.reload_tlut = 0;
-            cfg.c_sym = (int16_t)(t.control[0] * Q_SCALE);
-            cfg.upper_threshold = (int16_t)(upper * Q_SCALE);
-            cfg.lower_threshold = (int16_t)(lower * Q_SCALE);
-            cfg.c_upper = (int16_t)(t.control[3] * Q_SCALE);
-            cfg.c_lower = (int16_t)(t.control[4] * Q_SCALE);
-            cfg.use_sym = (uint8_t)t.control[5];
-            cfg.use_lin = (uint8_t)t.control[6];
-            cfg.num_samples = sample_count;
+            nla_config_t cfg_run = {0};
+            cfg_run.reload_tlut = 0;
+            cfg_run.c_sym = (int16_t)t.control[0];
+            cfg_run.upper_threshold = (int16_t)upper_scaled;
+            cfg_run.lower_threshold = (int16_t)lower_scaled;
+            cfg_run.c_upper = (int16_t)t.control[3];
+            cfg_run.c_lower = (int16_t)t.control[4];
+            cfg_run.use_sym = (uint8_t)t.control[5];
+            cfg_run.use_lin = (uint8_t)t.control[6];
+            cfg_run.num_samples = sample_count;
 
-            auto start = std::chrono::high_resolution_clock::now();
-            kernel(bo_in, bo_out, bo_d, bo_e, cfg).wait();
-            auto end = std::chrono::high_resolution_clock::now();
+            auto start_comp = std::chrono::high_resolution_clock::now();
+            kernel(bo_in, bo_out, bo_d, bo_e, cfg_run).wait();
+            auto end_comp = std::chrono::high_resolution_clock::now();
 
             bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
-            // Métricas
-            double duration_ns = std::chrono::duration<double>(end - start).count() * 1e9;
-            double est_cycles = duration_ns * (FPGA_FREQ_MHZ / 1000.0);
-            double avg_ns_per_sample = duration_ns / sample_count;
-            double avg_cycles_per_sample = est_cycles / sample_count;
-            double throughput_msps = (sample_count / (duration_ns / 1000.0)); 
-            double bw_gbs = (sample_count * 4.0) / duration_ns; 
+            double comp_duration_ns = std::chrono::duration<double>(end_comp - start_comp).count() * 1e9;
+            double comp_est_cycles = comp_duration_ns * (FPGA_FREQ_MHZ / 1000.0);
+            double avg_ns_per_sample = comp_duration_ns / sample_count;
+            double avg_cycles_per_sample = comp_est_cycles / sample_count;
 
-            // Evaluación de Datos
             double mse = 0.0;
+            double mne = 0.0; 
             int local_errors = 0;
-            int valid_samples_in_range = 0; // Para promediar el MSE correctamente
+            int valid_samples_in_range = 0;
 
             std::stringstream table_out;
             table_out << "X_REAL\tX_HW\tY_HW\tY_IDEAL\tDIFF\n";
+
+            log_file << "======================================================\n";
+            log_file << "[HW_LOG] INICIANDO TRANSACCIÓN: " << t.name << "\n";
+            log_file << "[HW_LOG] CONFIG AXI-LITE: reload_tlut=" << (int)cfg_run.reload_tlut 
+                     << ", c_sym=" << cfg_run.c_sym 
+                     << ", upper=" << cfg_run.upper_threshold 
+                     << ", lower=" << cfg_run.lower_threshold 
+                     << ", use_sym=" << (int)cfg_run.use_sym << "\n";
+            log_file << "[HW_LOG] FASE 1 - LUT LOAD: " << load_est_cycles << " ciclos (" << load_duration_ns << " ns)\n";
+            log_file << "[HW_LOG] FASE 2 - COMPUTE INICIO: Procesando " << sample_count << " datos...\n";
 
             for (int j = 0; j < sample_count; j++) {
                 double x_val = x_original[j];
                 double x_hw  = (double)in_map[j] / Q_SCALE;
                 double y_hw  = (double)out_map[j] / Q_SCALE;
                 
-                // Obtenemos el valor matemático ideal puro para la tabla
                 double y_ideal = t.golden(x_val);
                 double diff = std::abs(y_hw - y_ideal);
 
-                // Cálculo estricto de Errores y MSE SOLO dentro del rango de operación [lower, upper]
-                if (x_val >= (double)lower && x_val <= (double)upper) {
+                if (x_val >= lower_d && x_val <= upper_d) {
                     mse += (diff * diff);
+                    if (y_ideal != 0.0) {
+                        mne += (diff / std::abs(y_ideal)); 
+                    } else {
+                        mne += diff; 
+                    }
                     valid_samples_in_range++;
                     if (diff > TOL_HARD) local_errors++;
                 }
 
                 table_out << std::fixed << std::setprecision(10) 
                           << x_val << "\t" << x_hw << "\t" << y_hw << "\t" << y_ideal << "\t" << diff << "\n";
+                          
+                log_file << "[HW_LOG] SPL[" << j << "] X=" << x_val 
+                         << " | Y_HW=" << y_hw << " | Y_ID=" << y_ideal 
+                         << " | STATUS=" << ((diff > TOL_HARD && x_val >= lower_d && x_val <= upper_d) ? "SATURADO" : "OK") << "\n";
             }
             
             if (valid_samples_in_range > 0) {
                 mse /= valid_samples_in_range;
+                mne /= valid_samples_in_range;
             }
             total_errors += local_errors;
 
-            // ==========================================
-            // IMPRESIÓN (Archivo y Consola)
-            // ==========================================
+            log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos totales.\n\n";
+
             std::stringstream summary;
             summary << "======================================================\n"
                     << "Función:        " << t.name << "\n"
                     << "Parámetros:     Samples=" << sample_count << " | DLUT=" << d_cap << " | ELUT=" << active_depth << "\n"
-                    << "Rendimiento HW: \n"
-                    << "  - Frecuencia:      " << FPGA_FREQ_MHZ << " MHz\n"
-                    << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << duration_ns << " ns (" << (int)est_cycles << " ciclos)\n"
-                    << "  - Latencia/Dato:   " << avg_ns_per_sample << " ns/spl (" << std::setprecision(2) << avg_cycles_per_sample << " ciclos/spl)\n"
-                    << "  - Throughput:      " << throughput_msps << " MSPS\n"
-                    << "  - Ancho de Banda:  " << bw_gbs << " GB/s efectivos\n"
-                    << "Precisión (Rango [" << lower << ", " << upper << "]):\n"
+                    << "Tiempos Transacción 1 (LUT LOAD):\n"
+                    << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << load_duration_ns << " ns (" << (int)load_est_cycles << " ciclos)\n"
+                    << "Tiempos Transacción 2 (COMPUTE):\n"
+                    << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << comp_duration_ns << " ns (" << (int)comp_est_cycles << " ciclos)\n"
+                    << "  - Procesamiento:   Average: " << avg_ns_per_sample << " ns/spl (" << std::setprecision(2) << avg_cycles_per_sample << " ciclos/spl)\n"
+                    << "Precisión (Rango [" << lower_d << ", " << upper_d << "]):\n"
                     << "  - MSE:             " << std::scientific << std::setprecision(6) << mse << "\n"
+                    << "  - MNE:             " << std::scientific << std::setprecision(6) << mne << "\n"
                     << "Validación:     " << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED]") << "\n";
 
             std::cout << summary.str();
@@ -259,11 +272,16 @@ int main(int argc, char **argv) {
         }
         
         std::cout << "======================================================\n";
-        std::cout << "FINAL: Errores HW Críticos = " << total_errors << " | Archivo guardado: " << filename << "\n";
+        std::cout << "FINAL: Errores HW = " << total_errors << "\n"
+                  << " - Resumen: " << filename_res << "\n"
+                  << " - Datalog: " << filename_log << "\n";
 
     } catch (const std::exception& e) {
         std::cerr << "Error Crítico XRT: " << e.what() << std::endl;
         return EXIT_FAILURE;
     }
+    
+    res_file.close();
+    log_file.close();
     return EXIT_SUCCESS;
 }
