@@ -1,3 +1,9 @@
+/*
+ * ----------------------------------------------------------------------------
+ * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
+ * ----------------------------------------------------------------------------
+ */
+
 #include "tlut_api.hpp"
 #include <fstream>
 #include <cmath>

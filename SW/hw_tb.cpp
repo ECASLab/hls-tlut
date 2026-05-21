@@ -1,3 +1,9 @@
+/*
+ * ----------------------------------------------------------------------------
+ * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
+ * ----------------------------------------------------------------------------
+ */
+
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -66,14 +72,23 @@ int main(int argc, char **argv) {
 
     try {
         TlutHardwareConfig hw_cfg;
-        hw_cfg.kernel_name = "nla_top"; 
-        hw_cfg.max_samples = 20000;
-        hw_cfg.dlut_words = 256;
-        hw_cfg.elut_words = 1024;
-        hw_cfg.fpga_freq_mhz = 250.0;
-        hw_cfg.enable_profiling = true; // Telemetry explicitly activated for the testbench
+        hw_cfg.enable_profiling = true;
 
         TlutAccelerator accel(argv[1], 6, 10, hw_cfg, 0);
+
+        // ==========================================================
+        // WARM-UP TRANSACTION: Absorber latencia de inicialización PCIe
+        // ==========================================================
+        std::cout << "[INFO] Realizando warm-up del bus PCIe y Driver XRT..." << std::endl;
+        try {
+            accel.load(tests[0].folder_name);
+            std::vector<float> dummy_data(256, 0.0f);
+            accel.process(dummy_data);
+        } catch (const std::exception& e) {
+            std::cerr << "[WARNING] Excepción durante warm-up: " << e.what() << std::endl;
+        }
+        std::cout << "[INFO] Warm-up completado. Iniciando perfilado de latencias puras HW.\n" << std::endl;
+        // ==========================================================
 
         int total_errors = 0;
 
@@ -108,8 +123,7 @@ int main(int argc, char **argv) {
             int local_errors = 0;
             int valid_samples_in_range = 0;
 
-            std::stringstream table_out;
-            table_out << "X_REAL\tY_HW\tY_IDEAL\tDIFF\n";
+            std::stringstream error_details;
 
             log_file << "======================================================\n";
             log_file << "[HW_LOG] INICIANDO TRANSACCIÓN: " << t.name_print << "\n";
@@ -130,15 +144,19 @@ int main(int argc, char **argv) {
                         mne += diff; 
                     }
                     valid_samples_in_range++;
-                    if (diff > TOL_HARD) local_errors++;
+                    
+                    // Manejo inteligente de log de errores (Máximo 10)
+                    if (diff > TOL_HARD) {
+                        local_errors++;
+                        if (local_errors <= 10) {
+                            error_details << "  -> Error #" << local_errors 
+                                          << " | X=" << std::fixed << std::setprecision(5) << x_val 
+                                          << " | Y_HW=" << y_val_hw 
+                                          << " | Y_IDEAL=" << y_ideal 
+                                          << " | DIFF=" << diff << "\n";
+                        }
+                    }
                 }
-
-                table_out << std::fixed << std::setprecision(10) 
-                          << x_val << "\t" << y_val_hw << "\t" << y_ideal << "\t" << diff << "\n";
-                          
-                log_file << "[HW_LOG] SPL[" << j << "] X=" << x_val 
-                         << " | Y_HW=" << y_val_hw << " | Y_ID=" << y_ideal 
-                         << " | STATUS=" << ((diff > TOL_HARD && x_val >= t.lower_th && x_val <= t.upper_th) ? "SATURADO" : "OK") << "\n";
             }
             
             if (valid_samples_in_range > 0) {
@@ -147,8 +165,18 @@ int main(int argc, char **argv) {
             }
             total_errors += local_errors;
 
+            // Volcado de estado al Datalog
+            if (local_errors > 0) {
+                log_file << "[HW_LOG] ADVERTENCIA: Se detectaron " << local_errors << " muestras fuera del límite de tolerancia (TOL_HARD).\n";
+                log_file << "[HW_LOG] Detalles de las primeras " << std::min(local_errors, 10) << " desviaciones detectadas:\n";
+                log_file << error_details.str();
+            } else {
+                log_file << "[HW_LOG] ESTADO: Señal íntegra. Precisión validada sin exceder tolerancia.\n";
+            }
+            
             log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos de hardware totales.\n\n";
 
+            // Resumen Ejecutivo a la Consola y al Resumen de Resultados
             std::stringstream summary;
             summary << "======================================================\n"
                     << "Función:        " << t.name_print << "\n"
@@ -161,19 +189,16 @@ int main(int argc, char **argv) {
                     << "Precisión (Rango [" << t.lower_th << ", " << t.upper_th << "]):\n"
                     << "  - MSE:             " << std::scientific << std::setprecision(6) << mse << "\n"
                     << "  - MNE:             " << std::scientific << std::setprecision(6) << mne << "\n"
-                    << "Validación:     " << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED]") << "\n";
+                    << "Validación:     " << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED] (" + std::to_string(local_errors) + " Errores)") << "\n";
 
             std::cout << summary.str();
-            
             res_file << summary.str();
-            res_file << "------------------------------------------------------\n";
-            res_file << table_out.str() << "\n\n";
         }
         
         std::cout << "======================================================\n";
-        std::cout << "FINAL: Errores HW = " << total_errors << "\n"
+        std::cout << "FINAL: Errores Totales HW = " << total_errors << "\n"
                   << " - Resumen: " << filename_res << "\n"
-                  << " - Datalog: " << filename_log << "\n";
+                  << " - Datalog detallado: " << filename_log << "\n";
 
     } catch (const std::exception& e) {
         std::cerr << "Error Crítico: " << e.what() << std::endl;

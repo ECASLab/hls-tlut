@@ -1,3 +1,9 @@
+/*
+ * ----------------------------------------------------------------------------
+ * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
+ * ----------------------------------------------------------------------------
+ */
+
 #pragma once
 #include <vector>
 #include <string>
