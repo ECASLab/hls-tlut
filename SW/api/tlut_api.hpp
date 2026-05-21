@@ -11,7 +11,7 @@
 #include <stdexcept>
 
 // Forward declarations to hide XRT dependencies from the user
-namespace xrt { class device; class kernel; class bo; }
+namespace xrt { class device; class kernel; class bo; class run; }
 
 /**
  * @brief Hardware parameters for the TLUT Accelerator bitstream.
@@ -66,6 +66,8 @@ private:
     void* bo_out_;
     void* bo_d_;
     void* bo_e_;
+    void* run_load_;    // Pre-instantiated run object for LUT load
+    void* run_process_; // Pre-instantiated run object for compute
 
     void read_txt_to_vector(const std::string& filepath, std::vector<int>& vec);
 };

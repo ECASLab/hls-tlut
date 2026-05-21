@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <limits>
 
 #include "api/tlut_api.cpp"
 
@@ -54,6 +55,9 @@ int main(int argc, char **argv) {
     const bool SWEEP_MODE_FIXED = true;
     const double SWEEP_FIXED_MIN = -12.0;
     const double SWEEP_FIXED_MAX = 12.0;
+    
+    // Iteraciones para filtrar el Jitter del SO y obtener latencia pura de HW
+    const int PROFILING_ITERATIONS = 5;
 
     std::vector<TestCase> tests = {
         {"SIGMOID",  "sigmoid",  -6.0,  6.0, g_sigmoid},
@@ -105,14 +109,23 @@ int main(int argc, char **argv) {
             
             size_t sample_count = x_original.size();
 
-            // LUT Load
-            accel.load(t.folder_name);
-            double load_duration_ns = accel.get_last_load_duration_ns();
+            // LUT Load con filtro de Jitter
+            double load_duration_ns = std::numeric_limits<double>::max();
+            for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
+                accel.load(t.folder_name);
+                double current_ns = accel.get_last_load_duration_ns();
+                if(current_ns < load_duration_ns) load_duration_ns = current_ns;
+            }
             double load_est_cycles = load_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
 
-            // Inference Compute
-            std::vector<float> y_hw = accel.process(x_original);
-            double comp_duration_ns = accel.get_last_compute_duration_ns();
+            // Inference Compute con filtro de Jitter
+            double comp_duration_ns = std::numeric_limits<double>::max();
+            std::vector<float> y_hw;
+            for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
+                y_hw = accel.process(x_original); // Validaremos los datos de la última iteración
+                double current_ns = accel.get_last_compute_duration_ns();
+                if(current_ns < comp_duration_ns) comp_duration_ns = current_ns;
+            }
             double comp_est_cycles = comp_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
             
             double avg_ns_per_sample = comp_duration_ns / sample_count;
@@ -145,7 +158,6 @@ int main(int argc, char **argv) {
                     }
                     valid_samples_in_range++;
                     
-                    // Manejo inteligente de log de errores (Máximo 10)
                     if (diff > TOL_HARD) {
                         local_errors++;
                         if (local_errors <= 10) {
@@ -165,7 +177,6 @@ int main(int argc, char **argv) {
             }
             total_errors += local_errors;
 
-            // Volcado de estado al Datalog
             if (local_errors > 0) {
                 log_file << "[HW_LOG] ADVERTENCIA: Se detectaron " << local_errors << " muestras fuera del límite de tolerancia (TOL_HARD).\n";
                 log_file << "[HW_LOG] Detalles de las primeras " << std::min(local_errors, 10) << " desviaciones detectadas:\n";
@@ -176,7 +187,6 @@ int main(int argc, char **argv) {
             
             log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos de hardware totales.\n\n";
 
-            // Resumen Ejecutivo a la Consola y al Resumen de Resultados
             std::stringstream summary;
             summary << "======================================================\n"
                     << "Función:        " << t.name_print << "\n"

@@ -47,11 +47,30 @@ TlutAccelerator::TlutAccelerator(const std::string& xclbin_path,
     bo_d_   = new xrt::bo(*device, hw_cfg_.dlut_words * sizeof(uint128_raw), kernel->group_id(2));
     bo_e_   = new xrt::bo(*device, hw_cfg_.elut_words * sizeof(uint128_raw), kernel->group_id(3));
 
+    // Optimización de Latencia: Pre-instanciar objetos run
+    auto run_load = new xrt::run(*kernel);
+    auto run_process = new xrt::run(*kernel);
+
+    // Enlazar los buffers estáticos que no cambian de posición
+    run_load->set_arg(0, *static_cast<xrt::bo*>(bo_in_));
+    run_load->set_arg(1, *static_cast<xrt::bo*>(bo_out_));
+    run_load->set_arg(2, *static_cast<xrt::bo*>(bo_d_));
+    run_load->set_arg(3, *static_cast<xrt::bo*>(bo_e_));
+
+    run_process->set_arg(0, *static_cast<xrt::bo*>(bo_in_));
+    run_process->set_arg(1, *static_cast<xrt::bo*>(bo_out_));
+    run_process->set_arg(2, *static_cast<xrt::bo*>(bo_d_));
+    run_process->set_arg(3, *static_cast<xrt::bo*>(bo_e_));
+
     device_ = device; 
     kernel_ = kernel;
+    run_load_ = run_load;
+    run_process_ = run_process;
 }
 
 TlutAccelerator::~TlutAccelerator() {
+    delete static_cast<xrt::run*>(run_load_);
+    delete static_cast<xrt::run*>(run_process_);
     delete static_cast<xrt::bo*>(bo_in_); 
     delete static_cast<xrt::bo*>(bo_out_);
     delete static_cast<xrt::bo*>(bo_d_);  
@@ -138,16 +157,19 @@ void TlutAccelerator::load(const std::string& func_name) {
     cfg_load.reload_tlut = 1;
     cfg_load.active_depth = active_depth_;
 
-    auto& kernel = *static_cast<xrt::kernel*>(kernel_);
+    // Uso del run object pre-instanciado
+    auto& run = *static_cast<xrt::run*>(run_load_);
+    run.set_arg(4, cfg_load); // Solo actualizamos la configuración
 
-    // Optional Telemetry Execution
     if (hw_cfg_.enable_profiling) {
         auto start_load = std::chrono::high_resolution_clock::now();
-        kernel(*static_cast<xrt::bo*>(bo_in_), *static_cast<xrt::bo*>(bo_out_), bo_d, bo_e, cfg_load).wait();
+        run.start();
+        run.wait();
         auto end_load = std::chrono::high_resolution_clock::now();
         last_load_ns_ = std::chrono::duration<double>(end_load - start_load).count() * 1e9;
     } else {
-        kernel(*static_cast<xrt::bo*>(bo_in_), *static_cast<xrt::bo*>(bo_out_), bo_d, bo_e, cfg_load).wait();
+        run.start();
+        run.wait();
     }
 }
 
@@ -160,7 +182,6 @@ std::vector<float> TlutAccelerator::process(const std::vector<float>& input_data
 
     auto& bo_in = *static_cast<xrt::bo*>(bo_in_);
     auto& bo_out = *static_cast<xrt::bo*>(bo_out_);
-    auto& kernel = *static_cast<xrt::kernel*>(kernel_);
     
     int16_t* in_map = bo_in.map<int16_t*>();
     int16_t* out_map = bo_out.map<int16_t*>();
@@ -180,14 +201,19 @@ std::vector<float> TlutAccelerator::process(const std::vector<float>& input_data
     cfg_run.use_lin = use_lin_;
     cfg_run.num_samples = static_cast<uint32_t>(samples_count);
 
-    // Optional Telemetry Execution
+    // Uso del run object pre-instanciado
+    auto& run = *static_cast<xrt::run*>(run_process_);
+    run.set_arg(4, cfg_run); // Solo actualizamos la configuración
+
     if (hw_cfg_.enable_profiling) {
         auto start_comp = std::chrono::high_resolution_clock::now();
-        kernel(bo_in, bo_out, *static_cast<xrt::bo*>(bo_d_), *static_cast<xrt::bo*>(bo_e_), cfg_run).wait();
+        run.start();
+        run.wait();
         auto end_comp = std::chrono::high_resolution_clock::now();
         last_compute_ns_ = std::chrono::duration<double>(end_comp - start_comp).count() * 1e9;
     } else {
-        kernel(bo_in, bo_out, *static_cast<xrt::bo*>(bo_d_), *static_cast<xrt::bo*>(bo_e_), cfg_run).wait();
+        run.start();
+        run.wait();
     }
 
     bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
