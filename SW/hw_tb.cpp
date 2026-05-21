@@ -4,10 +4,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <chrono>
 #include <sstream>
 
-#include "api/tlut_api.hpp"
+#include "api/tlut_api.cpp"
 
 double g_sigmoid(double x)  { return 1.0 / (1.0 + std::exp(-x)); }
 double g_tanh(double x)     { return std::tanh(x); }
@@ -67,10 +66,12 @@ int main(int argc, char **argv) {
 
     try {
         TlutHardwareConfig hw_cfg;
+        hw_cfg.kernel_name = "nla_top"; 
         hw_cfg.max_samples = 20000;
         hw_cfg.dlut_words = 256;
         hw_cfg.elut_words = 1024;
         hw_cfg.fpga_freq_mhz = 250.0;
+        hw_cfg.enable_profiling = true; // Telemetry explicitly activated for the testbench
 
         TlutAccelerator accel(argv[1], 6, 10, hw_cfg, 0);
 
@@ -89,19 +90,16 @@ int main(int argc, char **argv) {
             
             size_t sample_count = x_original.size();
 
-            auto start_load = std::chrono::high_resolution_clock::now();
+            // LUT Load
             accel.load(t.folder_name);
-            auto end_load = std::chrono::high_resolution_clock::now();
-
-            double load_duration_ns = std::chrono::duration<double>(end_load - start_load).count() * 1e9;
+            double load_duration_ns = accel.get_last_load_duration_ns();
             double load_est_cycles = load_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
 
-            auto start_comp = std::chrono::high_resolution_clock::now();
+            // Inference Compute
             std::vector<float> y_hw = accel.process(x_original);
-            auto end_comp = std::chrono::high_resolution_clock::now();
-
-            double comp_duration_ns = std::chrono::duration<double>(end_comp - start_comp).count() * 1e9;
+            double comp_duration_ns = accel.get_last_compute_duration_ns();
             double comp_est_cycles = comp_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
+            
             double avg_ns_per_sample = comp_duration_ns / sample_count;
             double avg_cycles_per_sample = comp_est_cycles / sample_count;
 
@@ -115,7 +113,7 @@ int main(int argc, char **argv) {
 
             log_file << "======================================================\n";
             log_file << "[HW_LOG] INICIANDO TRANSACCIÓN: " << t.name_print << "\n";
-            log_file << "[HW_LOG] FASE 1 - LUT LOAD: " << load_est_cycles << " ciclos (" << load_duration_ns << " ns)\n";
+            log_file << "[HW_LOG] FASE 1 - LUT LOAD (Puro HW): " << load_est_cycles << " ciclos (" << load_duration_ns << " ns)\n";
             log_file << "[HW_LOG] FASE 2 - COMPUTE INICIO: Procesando " << sample_count << " datos...\n";
 
             for (size_t j = 0; j < sample_count; j++) {
@@ -149,15 +147,15 @@ int main(int argc, char **argv) {
             }
             total_errors += local_errors;
 
-            log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos totales.\n\n";
+            log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos de hardware totales.\n\n";
 
             std::stringstream summary;
             summary << "======================================================\n"
                     << "Función:        " << t.name_print << "\n"
                     << "Parámetros:     Samples=" << sample_count << "\n"
-                    << "Tiempos Transacción 1 (LUT LOAD):\n"
+                    << "Tiempos Transacción 1 (LUT LOAD - Sólo HW):\n"
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << load_duration_ns << " ns (" << (int)load_est_cycles << " ciclos)\n"
-                    << "Tiempos Transacción 2 (API Call + COMPUTE):\n"
+                    << "Tiempos Transacción 2 (COMPUTE - Sólo HW):\n"
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << comp_duration_ns << " ns (" << (int)comp_est_cycles << " ciclos)\n"
                     << "  - Procesamiento:   Average: " << avg_ns_per_sample << " ns/spl (" << std::setprecision(2) << avg_cycles_per_sample << " ciclos/spl)\n"
                     << "Precisión (Rango [" << t.lower_th << ", " << t.upper_th << "]):\n"

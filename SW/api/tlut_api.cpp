@@ -1,6 +1,7 @@
 #include "tlut_api.hpp"
 #include <fstream>
 #include <cmath>
+#include <chrono>
 #include "xrt/xrt_bo.h"
 #include "xrt/xrt_device.h"
 #include "xrt/xrt_kernel.h"
@@ -33,9 +34,8 @@ TlutAccelerator::TlutAccelerator(const std::string& xclbin_path,
 
     auto device = new xrt::device(device_id);
     auto uuid = device->load_xclbin(xclbin_path);
-    auto kernel = new xrt::kernel(*device, uuid, "tlut_top");
+    auto kernel = new xrt::kernel(*device, uuid, hw_cfg_.kernel_name.c_str());
 
-    // Dynamic memory allocation based on constructor parameters
     bo_in_  = new xrt::bo(*device, hw_cfg_.max_samples * sizeof(int16_t), kernel->group_id(0));
     bo_out_ = new xrt::bo(*device, hw_cfg_.max_samples * sizeof(int16_t), kernel->group_id(1));
     bo_d_   = new xrt::bo(*device, hw_cfg_.dlut_words * sizeof(uint128_raw), kernel->group_id(2));
@@ -54,9 +54,9 @@ TlutAccelerator::~TlutAccelerator() {
     delete static_cast<xrt::device*>(device_);
 }
 
-double TlutAccelerator::get_fpga_frequency_mhz() const {
-    return hw_cfg_.fpga_freq_mhz;
-}
+double TlutAccelerator::get_fpga_frequency_mhz() const { return hw_cfg_.fpga_freq_mhz; }
+double TlutAccelerator::get_last_load_duration_ns() const { return last_load_ns_; }
+double TlutAccelerator::get_last_compute_duration_ns() const { return last_compute_ns_; }
 
 void TlutAccelerator::read_txt_to_vector(const std::string& filepath, std::vector<int>& vec) {
     std::ifstream file(filepath);
@@ -75,16 +75,19 @@ void TlutAccelerator::load(const std::string& func_name) {
     read_txt_to_vector(base_path + "elut.txt", elut_raw);
     read_txt_to_vector(base_path + "control.txt", ctrl_raw);
 
-    lower_th_ = ctrl_raw[0]; upper_th_ = ctrl_raw[1];
-    c_lower_  = ctrl_raw[2]; c_upper_  = ctrl_raw[3];
-    c_sym_    = ctrl_raw[4]; use_sym_  = ctrl_raw[5]; use_lin_ = ctrl_raw[6];
+    lower_th_ = static_cast<int16_t>(ctrl_raw[0]); 
+    upper_th_ = static_cast<int16_t>(ctrl_raw[1]);
+    c_lower_  = static_cast<int16_t>(ctrl_raw[2]); 
+    c_upper_  = static_cast<int16_t>(ctrl_raw[3]);
+    c_sym_    = static_cast<int16_t>(ctrl_raw[4]); 
+    use_sym_  = static_cast<uint8_t>(ctrl_raw[5]); 
+    use_lin_  = static_cast<uint8_t>(ctrl_raw[6]);
     
-    active_depth_ = (upper_th_ - lower_th_) + 1;
+    active_depth_ = static_cast<uint32_t>((upper_th_ - lower_th_) + 1);
 
-    // Safety checks for Hardware BRAM limits
-    int e_cap = (active_depth_ + 31) / 32;
-    int d_cap = (active_depth_ + 16 - 1) / 16;
-    int d_words_needed = (d_cap + 7) / 8;
+    size_t e_cap = (active_depth_ + 31) / 32;
+    size_t d_cap = (active_depth_ + 16 - 1) / 16;
+    size_t d_words_needed = (d_cap + 7) / 8;
 
     if (e_cap > hw_cfg_.elut_words || d_words_needed > hw_cfg_.dlut_words) {
         throw std::runtime_error("[TLUT_API] Hardware BRAM overflow. Function requires more LUT memory than allocated.");
@@ -95,30 +98,27 @@ void TlutAccelerator::load(const std::string& func_name) {
     uint128_raw* d_map = bo_d.map<uint128_raw*>();
     uint128_raw* e_map = bo_e.map<uint128_raw*>();
 
-    // Clear previous data
     for(size_t i = 0; i < hw_cfg_.dlut_words; i++) d_map[i] = {0,0,0,0};
     for(size_t i = 0; i < hw_cfg_.elut_words; i++) e_map[i] = {0,0,0,0};
 
-    // Pack ELUT (Assumes W_E = 4 bits)
-    for (int c = 0; c < e_cap; c++) {
+    for (size_t c = 0; c < e_cap; c++) {
         uint128_raw word = {0, 0, 0, 0};
-        for (int j = 0; j < 32; j++) {
-            int idx = c * 32 + j;
-            if (idx < active_depth_) {
-                uint32_t val = elut_raw[idx] & 0xF; 
+        for (size_t j = 0; j < 32; j++) {
+            size_t idx = c * 32 + j;
+            if (idx < static_cast<size_t>(active_depth_)) {
+                uint32_t val = static_cast<uint32_t>(elut_raw[idx]) & 0xF; 
                 word.data[j / 8] |= (val << ((j * 4) % 32));
             }
         }
         e_map[c] = word;
     }
 
-    // Pack DLUT (Assumes B_SIZE = 16)
-    for (int c = 0; c < d_words_needed; c++) {
+    for (size_t c = 0; c < d_words_needed; c++) {
         uint128_raw word = {0, 0, 0, 0};
-        for (int j = 0; j < 8; j++) {
-            int idx = c * 8 + j;
+        for (size_t j = 0; j < 8; j++) {
+            size_t idx = c * 8 + j;
             if (idx < d_cap) {
-                uint32_t val = (uint16_t)dlut_raw[idx]; 
+                uint32_t val = static_cast<uint16_t>(dlut_raw[idx]); 
                 word.data[j / 2] |= (val << ((j * 16) % 32));
             }
         }
@@ -133,13 +133,21 @@ void TlutAccelerator::load(const std::string& func_name) {
     cfg_load.active_depth = active_depth_;
 
     auto& kernel = *static_cast<xrt::kernel*>(kernel_);
-    kernel(*static_cast<xrt::bo*>(bo_in_), *static_cast<xrt::bo*>(bo_out_), bo_d, bo_e, cfg_load).wait();
+
+    // Optional Telemetry Execution
+    if (hw_cfg_.enable_profiling) {
+        auto start_load = std::chrono::high_resolution_clock::now();
+        kernel(*static_cast<xrt::bo*>(bo_in_), *static_cast<xrt::bo*>(bo_out_), bo_d, bo_e, cfg_load).wait();
+        auto end_load = std::chrono::high_resolution_clock::now();
+        last_load_ns_ = std::chrono::duration<double>(end_load - start_load).count() * 1e9;
+    } else {
+        kernel(*static_cast<xrt::bo*>(bo_in_), *static_cast<xrt::bo*>(bo_out_), bo_d, bo_e, cfg_load).wait();
+    }
 }
 
 std::vector<float> TlutAccelerator::process(const std::vector<float>& input_data) {
     size_t samples_count = input_data.size();
 
-    // Safety check for vector size
     if (samples_count > hw_cfg_.max_samples) {
         throw std::runtime_error("[TLUT_API] Input data exceeds maximum allowed hardware samples.");
     }
@@ -151,7 +159,6 @@ std::vector<float> TlutAccelerator::process(const std::vector<float>& input_data
     int16_t* in_map = bo_in.map<int16_t*>();
     int16_t* out_map = bo_out.map<int16_t*>();
 
-    // Quantization (Software Float -> Hardware Q format)
     for (size_t i = 0; i < samples_count; ++i) {
         in_map[i] = static_cast<int16_t>(input_data[i] * scale_);
     }
@@ -165,13 +172,20 @@ std::vector<float> TlutAccelerator::process(const std::vector<float>& input_data
     cfg_run.c_lower = c_lower_;
     cfg_run.use_sym = use_sym_; 
     cfg_run.use_lin = use_lin_;
-    cfg_run.num_samples = samples_count;
+    cfg_run.num_samples = static_cast<uint32_t>(samples_count);
 
-    // Execution
-    kernel(bo_in, bo_out, *static_cast<xrt::bo*>(bo_d_), *static_cast<xrt::bo*>(bo_e_), cfg_run).wait();
+    // Optional Telemetry Execution
+    if (hw_cfg_.enable_profiling) {
+        auto start_comp = std::chrono::high_resolution_clock::now();
+        kernel(bo_in, bo_out, *static_cast<xrt::bo*>(bo_d_), *static_cast<xrt::bo*>(bo_e_), cfg_run).wait();
+        auto end_comp = std::chrono::high_resolution_clock::now();
+        last_compute_ns_ = std::chrono::duration<double>(end_comp - start_comp).count() * 1e9;
+    } else {
+        kernel(bo_in, bo_out, *static_cast<xrt::bo*>(bo_d_), *static_cast<xrt::bo*>(bo_e_), cfg_run).wait();
+    }
+
     bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
-    // De-quantization (Hardware Q format -> Software Float)
     std::vector<float> output_data(samples_count);
     for (size_t i = 0; i < samples_count; ++i) {
         output_data[i] = static_cast<float>(out_map[i]) / scale_;
