@@ -9,6 +9,6 @@ executable ('mqlenet5',
     model_source,
     cpp_args : model_args,
     install : false,
-    include_directories : [projectinc, include_directories('../../api')],
+    include_directories : [projectinc, include_directories('../../../api')],
     dependencies : [project_deps, libmodelexecuter_dep]
 )
