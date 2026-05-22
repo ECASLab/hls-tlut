@@ -1,0 +1,23 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/axc-executer.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "draft/add-tlut-experiment"]
+	remote = origin
+	merge = refs/heads/draft/add-tlut-experiment
+[submodule "axc-math"]
+	active = true
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-math-operators
+[submodule "ext/fal-accels"]
+	active = true
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/flexible-accelerators-library-fal
+[submodule "hls"]
+	active = true
+	url = https://github.com/Xilinx/HLS_arbitrary_Precision_Types
+[submodule "ext/matrix"]
+	active = true
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-gemm-accelerator.git

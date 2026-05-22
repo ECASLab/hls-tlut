@@ -1,0 +1,5 @@
+builddir
+subprojects/*
+!subprojects/*.wrap
+docs/html
+tests/hw-ops/tests/*/hls_project*

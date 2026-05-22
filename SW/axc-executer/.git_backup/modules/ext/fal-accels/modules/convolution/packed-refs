@@ -1,0 +1,25 @@
+# pack-refs with: peeled fully-peeled sorted 
+b13af1f7893695f941961df9109e72a7173c915f refs/remotes/origin/develop
+c2075e49c0dc265825a214f664de5354fa17e8b5 refs/remotes/origin/feature/FFT-convolution
+318574201e4356ae862be36e644ec0911f024ad2 refs/remotes/origin/feature/FFT-convolver
+f6be83659dff63e093758d71431456e898795ff8 refs/remotes/origin/feature/HLS-FFT
+1715baf803311cc7e1fec4a43a134ad8a4b77e75 refs/remotes/origin/feature/Spatial_convolution
+81d15147c1f1235d7ad09afc35e23c05e4e3a878 refs/remotes/origin/feature/Sw-kernel-3-5-7
+8977c3863d66db1ba95d8e80fc44b419f7d4e5d7 refs/remotes/origin/feature/add-accelerator-example
+20ec2b71d564668b6d1886f7f551fb8c87985c64 refs/remotes/origin/feature/add-building-system
+50532da8a1439d63b732f6a62efd9b519f1fc403 refs/remotes/origin/feature/add-data-benchmarking
+bca4ae0c6835e2d34af6ed90f616572dce57369e refs/remotes/origin/feature/add-dw-pw-convolution-test
+18413ba7fe56ddfe9fc926e3035d73f251482a9e refs/remotes/origin/feature/add-extend-convolution-testbench-to-ocv
+9bc00552c0cf7b68746e9a3ea1bc139f3979fd43 refs/remotes/origin/feature/add-line-buffer
+aff29827fed9cfe5d7d8d3332e77c36ab4d76ff5 refs/remotes/origin/feature/add-ocv-dw-pw-convolution
+fe526eafa56243180e33664f8420924fd20758fe refs/remotes/origin/feature/add-opencv-functionality
+81aae09b3f3b6fcf1c881bb56d39bd9b2420f5a8 refs/remotes/origin/feature/add-stream-convolution-accel
+43fc7fad8f431c8923f6c44e3f4957ea9f6ebcc7 refs/remotes/origin/feature/add-unrolled-winograd
+722c7dee4b267cde6052281dfc95e8b0443c7ef8 refs/remotes/origin/feature/add-variable-kernel-sizes
+bbcfecbf20cc69b21a29bafe4c8509de0f7654a1 refs/remotes/origin/feature/add-window-convolution
+18d8637ea2d79eacef6142e83dc0559702f646a3 refs/remotes/origin/feature/add-winograd-5
+0faae38b268974de001a000e83bfe450a28863a4 refs/remotes/origin/feature/create-convolution-class
+1066f6b42a82c4892f1f5249d1f0708cafca3c3f refs/remotes/origin/feature/mirroing-padding
+a6ba08a4b6d3b2cba4bc57eec19e4f3d7ffb3442 refs/remotes/origin/feature/update-readme-with-accel
+202a63e4f444c5fd3f0f709553b2e678463913e8 refs/remotes/origin/main
+202a63e4f444c5fd3f0f709553b2e678463913e8 refs/tags/v0.1.0

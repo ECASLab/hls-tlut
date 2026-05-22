@@ -1,0 +1,49 @@
+###################################################################
+## Copyright 2021
+## Author: Luis G. Leon-Vega <lleon95@estudiantec.cr>
+##         Eduardo Salazar-Villalobos <eduarsalazar@estudiantec.cr>
+###################################################################
+
+image: gcc:9.4
+
+sw-build:  
+  stage: build
+  before_script:
+    - apt update
+    - apt install python3-pip ninja-build -y
+    - pip3 install meson
+
+  script:
+    - meson builddir
+    - ninja -C builddir
+
+  artifacts:
+    paths:
+      - builddir
+
+sw-test:  
+  stage: test
+  before_script:
+    - apt update
+    - apt install python3-pip ninja-build -y
+    - pip3 install meson
+
+  script:
+    - ninja test -C builddir
+
+pages:
+  image: alpine
+  stage: deploy
+  script:
+    - apk update && apk add make doxygen graphviz ttf-freefont
+    - mkdir public
+    - cd docs && doxygen && cd -
+    - cp -r docs/html/* public
+
+  artifacts:
+    paths:
+    - public
+
+  only:
+    - main
+    - develop

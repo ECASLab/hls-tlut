@@ -1,0 +1,3 @@
+Syntax:
+
+plot_hist_datatypes_PE_img_KERNELSIZE

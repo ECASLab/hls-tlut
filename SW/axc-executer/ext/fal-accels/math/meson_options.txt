@@ -1,0 +1,5 @@
+# Copyright 2022
+# Author: Luis G. Leon-Vega <lleon95@estudiantec.cr>
+
+option('build_tests', type : 'boolean', value : false, description: 'Enable building the tests')
+option('build_examples', type : 'boolean', value : false, description: 'Enable building the examples')

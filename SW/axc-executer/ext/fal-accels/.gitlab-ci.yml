@@ -1,0 +1,22 @@
+###################################################################
+## Copyright 2021-2022
+## Author: Luis G. Leon-Vega <lleon95@estudiantec.cr>
+###################################################################
+
+pages:
+  image: alpine
+  stage: deploy
+  script:
+    - apk update && apk add make doxygen graphviz ttf-freefont
+    - mkdir public
+    - export VERSION=$(cat helpers/version)
+    - cd docs && doxygen && cd -
+    - cp -r docs/html/* public
+
+  artifacts:
+    paths:
+    - public
+
+  only:
+    - main
+    - develop

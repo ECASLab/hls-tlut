@@ -1,0 +1,21 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	worktree = ../../../../ext/fal-accels
+[remote "origin"]
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/flexible-accelerators-library-fal
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "develop"]
+	remote = origin
+	merge = refs/heads/develop
+[submodule "convolution"]
+	active = true
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-convolution-accelerator
+[submodule "math"]
+	active = true
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-math-operators.git
+[submodule "matrix"]
+	active = true
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-gemm-accelerator.git

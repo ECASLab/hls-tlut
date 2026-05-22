@@ -1,0 +1,12 @@
+[submodule "convolution"]
+	path = convolution
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-convolution-accelerator
+	branch = develop
+[submodule "matrix"]
+	path = matrix
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-gemm-accelerator.git
+	branch = develop
+[submodule "math"]
+	path = math
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-math-operators.git
+	branch = develop

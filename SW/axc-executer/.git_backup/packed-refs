@@ -1,0 +1,26 @@
+# pack-refs with: peeled fully-peeled sorted 
+07c184379f86f63ac539ea13b7741a5288a22b88 refs/remotes/origin/develop
+1d8eccd50bace8547c8ddb090e38ee953aee987f refs/remotes/origin/draft/add-fpga-experiments
+ec355e1a0683de0d6c811f4fada4fb0982983622 refs/remotes/origin/draft/add-tlut-experiment
+e729436f3b9ceed8e89e268d54db061461815fd8 refs/remotes/origin/feature/add-batch-execution
+cf8f31075ab5d22dc8768523ec6868a6e86e2d92 refs/remotes/origin/feature/add-cv-benchmark-matmul
+12a257134cc3b782333583ea3ad7783be571396f refs/remotes/origin/feature/add-dse-benchmark
+2360c406fbc4290e04603d75269c981728830240 refs/remotes/origin/feature/add-execution-kernel-support
+9edd2d63c3d5180427fae7e5b574dd3bf622c9ba refs/remotes/origin/feature/add-fal-custom-conv2d-accelerator
+1791ea6fddfd19568601ff70bb994613b5e30bdc refs/remotes/origin/feature/add-fal-custom-depthconv2d-accelerator
+39a6db22b384b926a20b46fa36559ce2c6d4531d refs/remotes/origin/feature/add-fft-benchmark-matmul
+d11da4b0fb80608887ca87f09d69c539a2358e5b refs/remotes/origin/feature/add-graph-based-executer
+0688888fcc7d2b488552688b8b31b405c0218719 refs/remotes/origin/feature/add-lenet-executer
+644b1d62b6cda668304d5e4ca66a6705ddd888ac refs/remotes/origin/feature/add-mixed-quantisation-example
+f6e0fd7f68172c9efd586653f93a24ad7538f8bd refs/remotes/origin/feature/add-mobilenetv2-support
+6303b2616471073af3d0abc79cba78ae552e02e9 refs/remotes/origin/feature/add-omp
+5faf128ef14699ebd480ff55765c06e9632d63cb refs/remotes/origin/feature/add-quantisation
+c3324f1b9b31c1a23adee8952a48df90b2d2da5b refs/remotes/origin/feature/add-readme
+a2c72042e8132c8cd51d603bb15a0fc8c24a33ea refs/remotes/origin/feature/add-tiny-mlperf-mlp
+89c306615aa0e5ebf454e55bfde6bb5c35e23cff refs/remotes/origin/feature/basic-hexa-arch
+52190eb479e19f28adba87bf63eb7de8cea3447b refs/remotes/origin/feature/fix-pre-release-0.2
+9ec1a76eec01a75ba64c9c1fbac7c60c729c31c8 refs/remotes/origin/feature/integrate-axc-math
+f1c3b350dad5f532ec65b4c7a832dd645d6dd1cd refs/remotes/origin/feature/read-hdf5-data
+77eacbb7d06431aaaa86fedb273031a425f355b3 refs/remotes/origin/hotfix/fix-submodules
+20d18c06499093e398fcae6b35c8924fa438c45a refs/remotes/origin/main
+1b9104d8ab728c01a628f0cfeaee345b97919ba2 refs/tags/v0.1.0

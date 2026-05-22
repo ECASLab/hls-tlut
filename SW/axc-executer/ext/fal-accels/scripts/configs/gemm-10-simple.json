@@ -1,0 +1,63 @@
+{
+  "ACCELERATOR": ["gemm"],
+  "Q_BW": [4, 8, 10, 12, 14, 16],
+  "Q_INT": [1, 2, 4, 6],
+  "Q_O": [2, 4, 8],
+  "Q_CORE": ["None"],
+  "Q_PES": [1, 2, 4],
+  "CLOCK_PERIOD": [7.5],
+  "Q_I_ROWS": [0],
+  "Q_I_COLUMNS": [0],
+  "Q_FIXED_RATIO": 0.5,
+  "Q_INPUTS_TB": [120],
+  "Q_OUTPUTS_TB": [10],
+  "Q_SEED": [0, 15],
+  "CONSUMPTION_PAIRS": [{
+    "x": ["Datatype Width", "Datatype Integer"],
+    "stickies": ["PE Columns", "Core", "PEs"],
+    "template": "consumption-datatype_{project}.pdf"
+  },
+  {
+    "x": ["PE Columns"],
+    "stickies": ["Datatype Width", "Datatype Integer", "Core", "PEs"],
+    "template": "consumption-pesize_{project}.pdf"
+  }],
+  "QUALITY_PAIRS": [
+    {
+      "dof": ["PSNR"],
+      "template": "PSNR{project}.pdf",
+      "series": ["Core", "PE Columns", "PEs"],
+      "stickies": ["Datatype Integer", "Big Matrix Inputs", "Big Matrix Outputs"]      
+    },
+    {
+      "dof": ["Frobenius"],
+      "template": "Frobenius{project}.pdf",
+      "series": ["Core", "PE Columns", "PEs"],
+      "stickies": ["Datatype Integer", "Big Matrix Inputs", "Big Matrix Outputs"]
+    }
+  ],
+  "HISTOGRAM": {
+    "stickies": ["Datatype Integer", "Core", "PE Columns", "Big Matrix Inputs", "Big Matrix Outputs"],
+    "template": "hist{project}.pdf",
+    "maxrange": 4
+  },
+  "EFFICIENCY": {
+    "equation": [
+      {"consts":[2],
+       "fields": ["PE Columns", "PE Columns", "PE Rows", "PEs"]}
+    ],
+    "dofs": ["Datatype Width", "Datatype Integer", "Core", "PE Columns", "PEs"],
+    "metrics": ["mean", "std"],
+    "peak_performance": 276000
+  },
+  "ERROR": {
+    "dofs": ["Datatype Width", "Datatype Integer", "Core", "PE Columns"]
+  },
+  "TRADE-OFF": {
+    "error": ["Mean"],
+    "latency": ["latency_avg"],
+    "dofs": ["PEs", "PE Columns", "Datatype Width", "Datatype Integer"],
+    "core": ["Core"],
+    "template": "tradeoff{project}"
+  }
+}

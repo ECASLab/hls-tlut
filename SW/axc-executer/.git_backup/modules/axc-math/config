@@ -1,0 +1,15 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	worktree = ../../../ext/axc-math
+[remote "origin"]
+	url = https://gitlab.com/ecas-lab-tec/approximate-flexible-acceleration-ml/approximate-math-operators
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "master"]
+	remote = origin
+	merge = refs/heads/master
+[submodule "ext/hls-types"]
+	active = true
+	url = https://github.com/Xilinx/HLS_arbitrary_Precision_Types

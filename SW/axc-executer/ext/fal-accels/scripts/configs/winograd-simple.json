@@ -1,0 +1,69 @@
+{
+  "ACCELERATOR": ["convolution"],
+  "Q_KS": [3],
+  "Q_BW": [4, 6, 8, 10, 12, 16],
+  "Q_INT": [1],
+  "Q_O": [2],
+  "Q_CORE": ["Winograd"],
+  "Q_PES": [1, 2, 4],
+  "CLOCK_PERIOD": [7.5],
+  "TB_ARGV": ["examples/convolution/misc/lenna.png", "examples/convolution/misc/baboon.png", "examples/convolution/misc/boat.png"],
+  "Q_FIXED_RATIO": 0.5,
+  "Q_INPUTS_TB": [0],
+  "Q_OUTPUTS_TB": [0],
+  "Q_SEED": [0],
+  "CONSUMPTION_PAIRS": [{
+    "x": ["Datatype Width", "Datatype Integer"],
+    "stickies": ["PE Columns", "Core", "Kernel Columns", "PEs"],
+    "template": "consumption-datatype_{project}.pdf"
+  },
+  {
+    "x": ["PE Columns"],
+    "stickies": ["Datatype Width", "Datatype Integer", "Core", "Kernel Columns"],
+    "template": "consumption-pesize_{project}.pdf"
+  }],
+  "QUALITY_PAIRS": [
+    {
+      "dof": ["PSNR"],
+      "template": "PSNR{project}.pdf",
+      "series": ["Core", "PE Columns", "PEs", "Kernel Columns"],
+      "stickies": ["Datatype Integer", "Image Rows", "Image Columns", "Image name"]
+    },
+    {
+      "dof": ["SSIM"],
+      "template": "SSIM{project}.pdf",
+      "series": ["Core", "PE Columns", "PEs", "Kernel Columns"],
+      "stickies": ["Datatype Integer", "Image Rows", "Image Columns", "Image name"]
+    },
+    {
+      "dof": ["Frobenius"],
+      "template": "Frobenius{project}.pdf",
+      "series": ["Core", "PE Columns", "PEs", "Kernel Columns"],
+      "stickies": ["Datatype Integer", "Image Rows", "Image Columns", "Image name"]
+    }
+  ],
+  "HISTOGRAM": {
+    "stickies": ["Datatype Integer", "Core", "PE Columns", "Kernel Columns"],
+    "template": "hist-conv-{project}.pdf",
+    "maxrange": 1
+  },
+  "EFFICIENCY": {
+    "equation": [
+      {"consts":[2],
+       "fields": ["Kernel Columns", "Kernel Rows", "PE Columns", "PE Rows", "PEs"]}
+    ],
+    "dofs": ["Datatype Width", "Datatype Integer", "Core", "PE Columns", "PEs", "Kernel Columns"],
+    "metrics": ["mean", "std"],
+    "peak_performance": 276000
+  },
+  "ERROR": {
+    "dofs": ["Datatype Width", "Datatype Integer", "Core", "PE Columns"]
+  },
+  "TRADE-OFF": {
+    "error": ["Mean"],
+    "latency": ["latency_avg"],
+    "dofs": ["PEs", "PE Columns", "Datatype Width", "Datatype Integer", "Kernel Columns"],
+    "core": ["Core"],
+    "template": "tradeoff{project}"
+  }
+}

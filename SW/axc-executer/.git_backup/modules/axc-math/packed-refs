@@ -1,0 +1,25 @@
+# pack-refs with: peeled fully-peeled sorted 
+3012a839fbfa337bfddbd2e8cbc6afa1bbc2e4ee refs/remotes/origin/develop
+23aed43d4342b653da3a82b6a33acd7c38b662d4 refs/remotes/origin/feature/add-building-system
+b3cc6bd5508d7daee9117e0eb6e2d02b18e50880 refs/remotes/origin/feature/add-ci-cd
+42aa5bc5450b994247c19a5c2e488d3d6ef6ea11 refs/remotes/origin/feature/add-compressing-structures
+d848bd38f7f5dbc05b1561bd6af4d8cfac224752 refs/remotes/origin/feature/add-existing-exact-implementations
+c6b74ed186e735ca4832ecf3a169122377a4be6b refs/remotes/origin/feature/add-exponential-operator
+04cc4b5f79446170c8c7c73564778ebaa909ec85 refs/remotes/origin/feature/add-lsb-fixed
+315509e36af8f2bab57770de5c94ef92e97ecdf3 refs/remotes/origin/feature/add-measuring-code
+9840e3fe7033af770f5f16d50b964a7e7bf277de refs/remotes/origin/feature/add-readme
+58ed7ed770b96445587609b24740ceffc5335e96 refs/remotes/origin/feature/add-relu
+dc6bf8db0aa78dc16f9e7f9c4b730725f38e4209 refs/remotes/origin/feature/add-sqrt-lut
+110a341003e3e836ea6fe789649ab835e7550d84 refs/remotes/origin/feature/add-sub-div
+aa4edc2642ea23c32cce4224b3bf9ec5a9d6930e refs/remotes/origin/feature/add-tanh-lut-operator
+d369ec110e683b0cabf9d06ac996eee77b82a47f refs/remotes/origin/feature/add-taylor-approximation
+6c0838cdfb00c1d1d7bfbbab8b7939a5592f5fb8 refs/remotes/origin/feature/declare-dependency
+b8f6c2c41cb73a7c8b21c2ebadedccdac541823f refs/remotes/origin/feature/or-multiplication
+8a3a0808a690f9576992727ce37fc73dd6b30d3a refs/remotes/origin/feature/prepare-synthesis-test
+f0e3627b4a4659ee07bab512b797f5bd47d1cb82 refs/remotes/origin/hotfix/fix-fixedp-multiplication
+43890cca0162e154e109a2f22aa4c9b3bf4a7328 refs/remotes/origin/master
+beb40d0c31e8910484a2e6ea2c4efd5abb75e2fa refs/remotes/origin/tmp/measuring
+99a72096b9e5ef6e5dcf1dc24b2f999f496b0b70 refs/tags/v0.1.0
+c2ff5a02852be19973a0a6e6c9900814643e1737 refs/tags/v0.1.0-pre
+a238bd0de797ff1af2685b7e50dc716fc9c8f084 refs/tags/v0.1.1
+43890cca0162e154e109a2f22aa4c9b3bf4a7328 refs/tags/v0.2.0

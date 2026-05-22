@@ -1,0 +1,8 @@
+builddir
+*.log*
+*.data
+*.xml
+baboon*
+lenna*
+peppers*
+barbara*

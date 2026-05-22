@@ -1,0 +1,7 @@
+[wrap-git]
+
+directory=approximate-math-operators
+
+url=https://gitlab.com/msee2/approximate-flexible-acceleration-ml/approximate-math-operators.git
+push-url=git@gitlab.com:msee2/approximate-flexible-acceleration-ml/approximate-math-operators.git
+revision=feature/declare-dependency
