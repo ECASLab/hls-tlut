@@ -25,7 +25,7 @@
 
 inline TlutAccelerator& get_tlut_accelerator() {
   static TlutHardwareConfig hw_cfg;
-  hw_cfg.max_samples = 500000;
+  hw_cfg.max_samples = 50000000;
   
   static TlutAccelerator accel("../../HW/package.hw.v2/kernels_v2.xclbin", 6, 10, hw_cfg);
   return accel;
