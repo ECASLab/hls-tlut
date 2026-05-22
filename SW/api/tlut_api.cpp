@@ -93,21 +93,7 @@ void TlutAccelerator::read_txt_to_vector(const std::string& filepath, std::vecto
 }
 
 void TlutAccelerator::load(const std::string& func_name) {
-    // Buscar dinámicamente dónde está la carpeta 'tluts'
-    std::string prefix = "";
-    std::ifstream check_dir;
-    
-    // Intenta en el directorio actual, luego subiendo hasta 3 niveles
-    for (int i = 0; i < 4; ++i) {
-        check_dir.open(prefix + "tluts/" + format_folder_ + "/" + func_name + "/dlut.txt");
-        if (check_dir.is_open()) {
-            check_dir.close();
-            break; // ¡Encontrado!
-        }
-        prefix += "../";
-    }
-
-    std::string base_path = prefix + "tluts/" + format_folder_ + "/" + func_name + "/";
+    std::string base_path = "../tluts/" + format_folder_ + "/" + func_name + "/";
     std::vector<int> dlut_raw, elut_raw, ctrl_raw;
 
     read_txt_to_vector(base_path + "dlut.txt", dlut_raw);
