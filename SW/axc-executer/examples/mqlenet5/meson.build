@@ -1,6 +1,6 @@
 model_source = [
     'main.cpp',
-    files('../../api/tlut_api.cpp') # <-- Agregamos el archivo de la API externa
+    '../../../api/tlut_api.cpp'
 ]
 
 model_inc = ['.']
@@ -9,6 +9,6 @@ executable ('mqlenet5',
     model_source,
     cpp_args : model_args,
     install : false,
-    include_directories : [projectinc, include_directories('../../api')], # <-- Agregamos la ruta a los .hpp
+    include_directories : [projectinc, include_directories('../../api')],
     dependencies : [project_deps, libmodelexecuter_dep]
 )
