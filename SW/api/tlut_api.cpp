@@ -83,17 +83,22 @@ double TlutAccelerator::get_fpga_frequency_mhz() const { return hw_cfg_.fpga_fre
 double TlutAccelerator::get_last_load_duration_ns() const { return last_load_ns_; }
 double TlutAccelerator::get_last_compute_duration_ns() const { return last_compute_ns_; }
 
-void TlutAccelerator::read_txt_to_vector(const std::string& filepath, std::vector<int>& vec) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        throw std::runtime_error("[TLUT_API] File not found: " + filepath);
-    }
-    int val; 
-    while (file >> val) vec.push_back(val);
-}
-
 void TlutAccelerator::load(const std::string& func_name) {
-    std::string base_path = "tluts/" + format_folder_ + "/" + func_name + "/";
+    // Buscar dinámicamente dónde está la carpeta 'tluts' 
+    std::string prefix = "";
+    std::ifstream check_dir;
+    
+    // Intenta en el directorio actual, un nivel arriba, ... hasta 4 niveles
+    for (int i = 0; i < 4; ++i) {
+        check_dir.open(prefix + "tluts/" + format_folder_ + "/" + func_name + "/dlut.txt");
+        if (check_dir.is_open()) {
+            check_dir.close();
+            break; // ¡Encontrado!
+        }
+        prefix += "../";
+    }
+
+    std::string base_path = prefix + "tluts/" + format_folder_ + "/" + func_name + "/";
     std::vector<int> dlut_raw, elut_raw, ctrl_raw;
 
     read_txt_to_vector(base_path + "dlut.txt", dlut_raw);
