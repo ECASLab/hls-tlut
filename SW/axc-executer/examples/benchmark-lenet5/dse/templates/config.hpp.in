@@ -1,0 +1,56 @@
+/*
+ * Copyright (C) 2023
+ * Authors:
+ *        Luis G. Leon Vega <luis.leon@ieee.org>
+ */
+
+#pragma once
+
+#include <memory>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include "executers/mqaccelerators.hpp"
+
+#include <layer.hpp>
+
+/*
+ * This is a configuration file to determine each layer configuration
+ * and how the units must be implemented
+ */
+
+/**
+ * @brief Quantisation parameters
+ * This is specific for the layers
+ */
+static constexpr std::pair<int, int> kQT[] = {
+$layers
+};
+
+/**
+ * @brief Accelerator configurations
+ *
+ * This defines all the configurations of the accelerators to implement
+ *
+ * This defines the executions unit to generate in order to fullfil the
+ * requirements of each layer
+ */
+static constexpr std::tuple<Layers, DataBits, IntBits, DropBits, DropBits,
+                            ArithApprox>
+    kAccelConfigs[] = {
+$accel_configs
+};
+
+/**
+ * @brief Accelerator factory
+ *
+ * This creates the accelerators and puts them into an array that
+ * will be used by the MQExecuter.
+ *
+ * Key: layer index
+ * Value: function to invoke the accelerator
+ */
+static const std::vector<std::shared_ptr<IAccelerator>> MQAccelerators = {
+$accels
+};
