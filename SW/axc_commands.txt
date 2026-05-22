@@ -1,0 +1,1 @@
+rm -rf builddir && meson setup builddir -Ddeveloper-mode=false -Dcpp_args="-Wno-maybe-uninitialized -Wno-int-in-bool-context -Wno-uninitialized -Wno-unknown-pragmas" && ninja -C builddir

@@ -13,8 +13,8 @@ Q_INT = 6
 Q_FRAC = 10
 B_SIZE = 16
 
-FORMAT_NAME = f"Q{Q_INT}_{Q_FRAC}"  # Crea el nombre de la carpeta base
-SCALE = 1 << Q_FRAC  # 1024
+FORMAT_NAME = f"Q{Q_INT}_{Q_FRAC}"
+SCALE = 1 << Q_FRAC
 RESOLUTION = 1.0 / SCALE
 
 # Límites de precisión Q6.10
@@ -24,7 +24,6 @@ MIN_Y_LIMIT = -(1 << (Q_INT - 1))              # -32.0
 W_E = int(math.log2(B_SIZE))
 MAX_E = (1 << W_E) - 1
 
-# Directorio base: ./tluts/Q6_10/
 BASE_DIR = os.path.join(os.path.dirname(__file__), "tluts", FORMAT_NAME)
 
 # ==========================================
@@ -43,7 +42,7 @@ FUNCTIONS = {
     "elu":      (lambda x: (math.exp(x) - 1.0),        -6.0, 0.0,  -1.0, 0.0,  0.0, 0, 1),
     "exp":      (math.exp,                             -1.0, 1.0,   0.0, 0.0,  0.0, 0, 0),
     "sqrt":     (math.sqrt,                             0.0, 10.0,  0.0, 0.0,  0.0, 0, 0),
-    "relu":     (lambda x: x if x > 0.0 else 0.0,      -1.0, 1.0,   0.0, 0.0,  0.0, 0, 1),
+    "relu":     (lambda x: x if x > 0.0 else 0.0,      -0.125, 0.125,   0.0, 0.0,  0.0, 0, 1),
 }
 
 # ==========================================
@@ -55,7 +54,6 @@ def generate_luts():
         os.makedirs(BASE_DIR, exist_ok=True)
 
         for name, data in FUNCTIONS.items():
-            # Desempaquetado según el nuevo orden
             func, lower_threshold, upper_threshold, c_lower, c_upper, c_sym, use_sym, use_lin = data
             
             # Rango de guardado: si hay simetría, empezamos en 0
@@ -112,7 +110,9 @@ def generate_luts():
                 int(round(c_upper * SCALE)),
                 int(round(c_sym * SCALE)),
                 int(use_sym),
-                int(use_lin)
+                int(use_lin),
+                len(d_lut),
+                len(e_lut)
             ]
             with open(os.path.join(func_dir, "control.txt"), "w") as f:
                 f.write("\n".join(map(str, ctrl_values)))

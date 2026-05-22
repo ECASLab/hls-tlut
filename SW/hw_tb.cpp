@@ -78,6 +78,7 @@ int main(int argc, char **argv) {
         TlutHardwareConfig hw_cfg;
         hw_cfg.enable_profiling = true;
 
+        // Inicialización de la API del acelerador
         TlutAccelerator accel(argv[1], 6, 10, hw_cfg, 0);
 
         // ==========================================================
@@ -89,7 +90,7 @@ int main(int argc, char **argv) {
             std::vector<float> dummy_data(256, 0.0f);
             accel.process(dummy_data);
         } catch (const std::exception& e) {
-            std::cerr << "[WARNING] Excepción durante warm-up: " << e.what() << std::endl;
+            std::cerr << "[WARNING] Excepcion durante warm-up: " << e.what() << std::endl;
         }
         std::cout << "[INFO] Warm-up completado. Iniciando perfilado de latencias puras HW.\n" << std::endl;
         // ==========================================================
@@ -122,7 +123,7 @@ int main(int argc, char **argv) {
             double comp_duration_ns = std::numeric_limits<double>::max();
             std::vector<float> y_hw;
             for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
-                y_hw = accel.process(x_original); // Validaremos los datos de la última iteración
+                y_hw = accel.process(x_original); // Validaremos los datos de la ultima iteracion
                 double current_ns = accel.get_last_compute_duration_ns();
                 if(current_ns < comp_duration_ns) comp_duration_ns = current_ns;
             }
@@ -139,7 +140,7 @@ int main(int argc, char **argv) {
             std::stringstream error_details;
 
             log_file << "======================================================\n";
-            log_file << "[HW_LOG] INICIANDO TRANSACCIÓN: " << t.name_print << "\n";
+            log_file << "[HW_LOG] INICIANDO TRANSACCION: " << t.name_print << "\n";
             log_file << "[HW_LOG] FASE 1 - LUT LOAD (Puro HW): " << load_est_cycles << " ciclos (" << load_duration_ns << " ns)\n";
             log_file << "[HW_LOG] FASE 2 - COMPUTE INICIO: Procesando " << sample_count << " datos...\n";
 
@@ -178,28 +179,28 @@ int main(int argc, char **argv) {
             total_errors += local_errors;
 
             if (local_errors > 0) {
-                log_file << "[HW_LOG] ADVERTENCIA: Se detectaron " << local_errors << " muestras fuera del límite de tolerancia (TOL_HARD).\n";
+                log_file << "[HW_LOG] ADVERTENCIA: Se detectaron " << local_errors << " muestras fuera del limite de tolerancia (TOL_HARD).\n";
                 log_file << "[HW_LOG] Detalles de las primeras " << std::min(local_errors, 10) << " desviaciones detectadas:\n";
                 log_file << error_details.str();
             } else {
-                log_file << "[HW_LOG] ESTADO: Señal íntegra. Precisión validada sin exceder tolerancia.\n";
+                log_file << "[HW_LOG] ESTADO: Senal integra. Precision validada sin exceder tolerancia.\n";
             }
             
             log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos de hardware totales.\n\n";
 
             std::stringstream summary;
             summary << "======================================================\n"
-                    << "Función:        " << t.name_print << "\n"
-                    << "Parámetros:     Samples=" << sample_count << "\n"
-                    << "Tiempos Transacción 1 (LUT LOAD - Sólo HW):\n"
+                    << "Funcion:        " << t.name_print << "\n"
+                    << "Parametros:     Samples=" << sample_count << "\n"
+                    << "Tiempos Transaccion 1 (LUT LOAD - Solo HW):\n"
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << load_duration_ns << " ns (" << (int)load_est_cycles << " ciclos)\n"
-                    << "Tiempos Transacción 2 (COMPUTE - Sólo HW):\n"
+                    << "Tiempos Transaccion 2 (COMPUTE - Solo HW):\n"
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << comp_duration_ns << " ns (" << (int)comp_est_cycles << " ciclos)\n"
                     << "  - Procesamiento:   Average: " << avg_ns_per_sample << " ns/spl (" << std::setprecision(2) << avg_cycles_per_sample << " ciclos/spl)\n"
-                    << "Precisión (Rango [" << t.lower_th << ", " << t.upper_th << "]):\n"
+                    << "Precision (Rango [" << t.lower_th << ", " << t.upper_th << "]):\n"
                     << "  - MSE:             " << std::scientific << std::setprecision(6) << mse << "\n"
                     << "  - MNE:             " << std::scientific << std::setprecision(6) << mne << "\n"
-                    << "Validación:     " << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED] (" + std::to_string(local_errors) + " Errores)") << "\n";
+                    << "Validacion:     " << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED] (" + std::to_string(local_errors) + " Errores)") << "\n";
 
             std::cout << summary.str();
             res_file << summary.str();
@@ -211,7 +212,7 @@ int main(int argc, char **argv) {
                   << " - Datalog detallado: " << filename_log << "\n";
 
     } catch (const std::exception& e) {
-        std::cerr << "Error Crítico: " << e.what() << std::endl;
+        std::cerr << "Error Critico: " << e.what() << std::endl;
         return EXIT_FAILURE;
     }
     

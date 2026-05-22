@@ -10,19 +10,19 @@
 #include <cstdint>
 #include <stdexcept>
 
-// Forward declarations to hide XRT dependencies from the user
+// Forward declarations para ocultar dependencias de XRT al usuario final
 namespace xrt { class device; class kernel; class bo; class run; }
 
 /**
- * @brief Hardware parameters for the TLUT Accelerator bitstream.
+ * @brief Parámetros de Hardware para el bitstream del Acelerador t-LUT.
  */
 struct TlutHardwareConfig {
-    std::string kernel_name = "nla_top"; // Configurable kernel name
-    size_t max_samples = 100000;         // Maximum elements per transaction
-    size_t dlut_words = 256;             // Size of the D-LUT BRAM (in 128-bit words)
-    size_t elut_words = 1024;            // Size of the E-LUT BRAM (in 128-bit words)
-    double fpga_freq_mhz = 250.0;        // Target operating frequency
-    bool enable_profiling = false;       // Feature flag for internal hardware timing
+    std::string kernel_name = "nla_top"; // Nombre configurable del kernel
+    size_t max_samples = 100000;         // Máximo de elementos por transacción
+    size_t dlut_words = 256;             // Tamaño BRAM D-LUT (palabras 128-bit)
+    size_t elut_words = 1024;            // Tamaño BRAM E-LUT (palabras 128-bit)
+    double fpga_freq_mhz = 250.0;        // Frecuencia de operación objetivo
+    bool enable_profiling = false;       // Bandera para medir tiempos de hardware
 };
 
 class TlutAccelerator {
@@ -55,19 +55,19 @@ private:
     uint8_t use_sym_, use_lin_;
     uint32_t active_depth_;
 
-    // Telemetry Registers
+    // Registros de Telemetría
     double last_load_ns_ = 0.0;
     double last_compute_ns_ = 0.0;
 
-    // Opaque XRT pointers
+    // Punteros opacos de XRT (Ocultan la librería subyacente)
     void* device_;
     void* kernel_;
     void* bo_in_;
     void* bo_out_;
     void* bo_d_;
     void* bo_e_;
-    void* run_load_;    // Pre-instantiated run object for LUT load
-    void* run_process_; // Pre-instantiated run object for compute
+    void* run_load_;    // Objeto run pre-instanciado para carga de LUT
+    void* run_process_; // Objeto run pre-instanciado para cómputo
 
     void read_txt_to_vector(const std::string& filepath, std::vector<int>& vec);
 };
