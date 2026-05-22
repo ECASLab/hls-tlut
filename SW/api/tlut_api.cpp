@@ -95,7 +95,7 @@ void TlutAccelerator::read_txt_to_vector(const std::string& filepath, std::vecto
 }
 
 void TlutAccelerator::load(const std::string& func_name) {
-    std::string base_path = "../tluts/" + format_folder_ + "/" + func_name + "/";
+    std::string base_path = "/home/lleonvega/ecaslab/sergio.porras/TLUT_NLA/SW/tluts/" + format_folder_ + "/" + func_name + "/";
     std::vector<int> dlut_raw, elut_raw, ctrl_raw;
 
     read_txt_to_vector(base_path + "dlut.txt", dlut_raw);
