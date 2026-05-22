@@ -24,7 +24,7 @@
 #include "../../../../api/tlut_api.hpp" // t-LUT Accelerator API
 
 inline TlutAccelerator& get_tlut_accelerator() {
-  static TlutAccelerator accel("../HW/package.hw.v2/kernels_v2.xclbin", 6, 10);
+  static TlutAccelerator accel("../../HW/package.hw.v2/kernels_v2.xclbin", 6, 10);
   return accel;
 }
 
