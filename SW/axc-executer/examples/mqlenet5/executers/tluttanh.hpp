@@ -45,7 +45,7 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
 
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
-  T max_val = 0.f;
+  T max_val = 0; // Punto fijo 0. Antes 0.f
   for (int i = 0; i < size; ++i) {
     max_val = input_data[i] > max_val ? input_data[i] : max_val;
   }
