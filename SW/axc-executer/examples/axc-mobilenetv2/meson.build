@@ -14,7 +14,7 @@ xrt_dep = declare_dependency(
 
 model_source = [
     'main.cpp',
-    'api/tlut_api.cpp'
+    '../../../api/tlut_api.cpp'
 ]
 
 model_inc = ['.']
