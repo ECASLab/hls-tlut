@@ -12,8 +12,18 @@
 #include <vector>
 #include <sstream>
 #include <limits>
+#include <locale>
 
 #include "api/tlut_api.cpp"
+
+// ----------------------------------------------------------------------------
+// Reglas de Formato (Costa Rica / RAE)
+// Decimales con coma (,), sin separador de miles.
+// ----------------------------------------------------------------------------
+struct FormatoCR : std::numpunct<char> {
+    char do_decimal_point() const override { return ','; }
+    std::string do_grouping() const override { return ""; }
+};
 
 double g_sigmoid(double x)  { return 1.0 / (1.0 + std::exp(-x)); }
 double g_tanh(double x)     { return std::tanh(x); }
@@ -37,6 +47,11 @@ struct TestCase {
 };
 
 int main(int argc, char **argv) {
+    // Aplicamos el formato RAE globalmente a la consola estándar
+    std::locale localeCR(std::locale::classic(), new FormatoCR);
+    std::cout.imbue(localeCR);
+    std::cerr.imbue(localeCR);
+
     if (argc < 2) {
         std::cerr << "Uso: " << argv[0] << " <xclbin> [version] [num_samples]" << std::endl;
         return EXIT_FAILURE;
@@ -49,6 +64,10 @@ int main(int argc, char **argv) {
     std::string filename_log = "hw_interaction_" + version + ".log";
     std::ofstream res_file(filename_res);
     std::ofstream log_file(filename_log);
+
+    // Aplicamos el formato RAE a los archivos de salida
+    res_file.imbue(localeCR);
+    log_file.imbue(localeCR);
 
     const double RANGE_PADDING = 1.0;
     const double TOL_HARD = 0.15;
@@ -117,6 +136,7 @@ int main(int argc, char **argv) {
             size_t sample_count = x_original.size();
 
             // LUT Load con filtro de Jitter
+            // Verificado: Toma exclusivamente el valor mínimo de las iteraciones
             double load_duration_ns = std::numeric_limits<double>::max();
             for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
                 accel.load(t.folder_name);
@@ -126,24 +146,29 @@ int main(int argc, char **argv) {
             double load_est_cycles = load_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
 
             // Inference Compute con filtro de Jitter
+            // Verificado: Toma exclusivamente el valor mínimo de las iteraciones
             double comp_duration_ns = std::numeric_limits<double>::max();
             std::vector<float> y_hw;
             for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
-                y_hw = accel.process(x_original); // Validaremos los datos de la ultima iteracion
+                y_hw = accel.process(x_original); // Validaremos los datos de la última iteración
                 double current_ns = accel.get_last_compute_duration_ns();
                 if(current_ns < comp_duration_ns) comp_duration_ns = current_ns;
             }
             double comp_est_cycles = comp_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
             
+            // Cálculos de Rendimiento (Throughput)
+            double throughput_msps = (static_cast<double>(sample_count) / comp_duration_ns) * 1000.0;
             double avg_ns_per_sample = comp_duration_ns / sample_count;
             double avg_cycles_per_sample = comp_est_cycles / sample_count;
 
             double mse = 0.0;
             double mne = 0.0; 
+            double mae = 0.0; // MAE (Maximum Absolute Error)
             int local_errors = 0;
             int valid_samples_in_range = 0;
 
             std::stringstream error_details;
+            error_details.imbue(localeCR); // Formato RAE a los detalles
 
             log_file << "======================================================\n";
             log_file << "[HW_LOG] INICIANDO TRANSACCION: " << t.name_print << "\n";
@@ -163,6 +188,12 @@ int main(int argc, char **argv) {
                     } else {
                         mne += diff; 
                     }
+                    
+                    // Cálculo de MAE (Maximum Absolute Error)
+                    if (diff > mae) {
+                        mae = diff;
+                    }
+                    
                     valid_samples_in_range++;
                     
                     if (diff > TOL_HARD) {
@@ -195,6 +226,8 @@ int main(int argc, char **argv) {
             log_file << "[HW_LOG] FASE 2 - COMPUTE FIN: " << comp_est_cycles << " ciclos de hardware totales.\n\n";
 
             std::stringstream summary;
+            summary.imbue(localeCR); // Formato RAE al resumen
+            
             summary << "======================================================\n"
                     << "Funcion:        " << t.name_print << "\n"
                     << "Parametros:     Samples=" << sample_count << " | Step=" << std::fixed << std::setprecision(5) << sweep_step << "\n"
@@ -202,9 +235,11 @@ int main(int argc, char **argv) {
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << load_duration_ns << " ns (" << (int)load_est_cycles << " ciclos)\n"
                     << "Tiempos Transaccion 2 (COMPUTE - Solo HW):\n"
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << comp_duration_ns << " ns (" << (int)comp_est_cycles << " ciclos)\n"
+                    << "  - Rendimiento:     " << std::fixed << std::setprecision(2) << throughput_msps << " MSps\n"
                     << "  - Procesamiento:   Average: " << avg_ns_per_sample << " ns/spl (" << std::setprecision(2) << avg_cycles_per_sample << " ciclos/spl)\n"
-                    << "Precision (Rango [" << t.lower_th << ", " << t.upper_th << "]):\n"
+                    << "Precision (Rango [" << t.lower_th << "; " << t.upper_th << "]):\n"
                     << "  - MSE:             " << std::scientific << std::setprecision(6) << mse << "\n"
+                    << "  - MAE:             " << std::fixed << std::setprecision(6) << mae << "\n"
                     << "  - MNE:             " << std::scientific << std::setprecision(6) << mne << "\n"
                     << "Validacion:     " << ((local_errors == 0) ? "[SUCCESS]" : "[FAILED] (" + std::to_string(local_errors) + " Errores)") << "\n";
 
