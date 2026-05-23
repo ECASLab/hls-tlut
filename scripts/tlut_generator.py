@@ -40,8 +40,8 @@ FUNCTIONS = {
     "softplus": (lambda x: math.log(1.0 + math.exp(x)), -5.0, 4.0,   0.0, 0.0,  0.0, 0, 1),
     "mish":     (lambda x: x * math.tanh(math.log(1.0 + math.exp(x))), -5.0, 3.0, 0.0, 0.0, 0.0, 0, 1),
     "elu":      (lambda x: (math.exp(x) - 1.0),        -6.0, 0.0,  -1.0, 0.0,  0.0, 0, 1),
-    "exp":      (math.exp,                             -1.0, 1.0,   0.0, 0.0,  0.0, 0, 0),
-    "sqrt":     (math.sqrt,                             0.0, 10.0,  0.0, 0.0,  0.0, 0, 0),
+    "exp":      (math.exp,                             -4.5, 3.375,   0.0, 31.875,  0.0, 0, 0),
+    "sqrt":     (math.sqrt,                             0.0, 15.875,  0.0, 4.0,  0.0, 0, 0),
     "relu":     (lambda x: x if x > 0.0 else 0.0,      -0.125, 0.125,   0.0, 0.0,  0.0, 0, 1),
 }
 
