@@ -1,8 +1,11 @@
 ifeq ($(filter clean,$(MAKECMDGOALS)),)
 ifndef VERSION
-$(error Debes especificar la version a usar. Ejemplo: make run VERSION=v2)
+$(error Debes especificar la version a usar. Ejemplo: make run VERSION=v2 SAMPLES=10000)
 endif
 endif
+
+# Por defecto serán 1000 si no se ingresa en el comando
+SAMPLES ?= 1000
 
 SOURCES := hw_tb.cpp
 EXECUTABLES := nla_hw_test
@@ -22,8 +25,9 @@ $(EXECUTABLES): $(SOURCES)
 run: $(EXECUTABLES)
 	@echo "=========================================================="
 	@echo "  Iniciando validación HW - Bitstream: $(XCLBIN)"
+	@echo "  Muestras (Samples): $(SAMPLES)"
 	@echo "=========================================================="
-	./$(EXECUTABLES) $(XCLBIN) $(VERSION)
+	./$(EXECUTABLES) $(XCLBIN) $(VERSION) $(SAMPLES)
 
 clean:
 	$(RM) $(EXECUTABLES) hw_results_*.txt hw_interaction_*.log

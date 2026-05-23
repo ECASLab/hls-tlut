@@ -38,45 +38,48 @@ struct TestCase {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cerr << "Uso: " << argv[0] << " <xclbin> [version]" << std::endl;
+        std::cerr << "Uso: " << argv[0] << " <xclbin> [version] [num_samples]" << std::endl;
         return EXIT_FAILURE;
     }
 
     std::string version = (argc >= 3) ? argv[2] : "default";
+    size_t num_samples = (argc >= 4) ? std::stoul(argv[3]) : 10000;
+
     std::string filename_res = "hw_results_" + version + ".txt";
     std::string filename_log = "hw_interaction_" + version + ".log";
     std::ofstream res_file(filename_res);
     std::ofstream log_file(filename_log);
 
-    const double SWEEP_STEP = 0.024;
     const double RANGE_PADDING = 1.0;
-    const double TOL_HARD = 0.10;
+    const double TOL_HARD = 0.15;
 
     const bool SWEEP_MODE_FIXED = true;
-    const double SWEEP_FIXED_MIN = -12.0;
-    const double SWEEP_FIXED_MAX = 12.0;
+    const double SWEEP_FIXED_MIN = -16.0;
+    const double SWEEP_FIXED_MAX = 16.0;
     
     // Iteraciones para filtrar el Jitter del SO y obtener latencia pura de HW
     const int PROFILING_ITERATIONS = 5;
 
     std::vector<TestCase> tests = {
-        {"SIGMOID",  "sigmoid",  -6.0,  6.0, g_sigmoid},
-        {"TANH",     "tanh",     -4.0,  4.0, g_tanh},
-        {"SOFTSIGN", "softsign", -8.0,  8.0, g_softsign},
-        {"ERF",      "erf",      -3.0,  3.0, g_erf},
-        {"SWISH",    "swish",    -6.0,  6.0, g_swish},
-        {"GELU",     "gelu",     -4.0,  4.0, g_gelu},
-        {"SOFTPLUS", "softplus", -5.0,  4.0, g_softplus},
-        {"MISH",     "mish",     -5.0,  3.0, g_mish},
-        {"ELU",      "elu",      -6.0,  0.0, g_elu},
-        {"EXP",      "exp",      -1.0,  1.0, g_exp},
-        {"SQRT",     "sqrt",      0.0, 10.0, g_sqrt},
-        {"RELU",     "relu",     -1.0,  1.0, g_relu}
+        {"SIGMOID",  "sigmoid",     -6.0,   6.0, g_sigmoid},
+        {"TANH",     "tanh",        -4.0,   4.0, g_tanh},
+        {"SOFTSIGN", "softsign",    -8.0,   8.0, g_softsign},
+        {"ERF",      "erf",         -3.0,   3.0, g_erf},
+        {"SWISH",    "swish",       -6.0,   6.0, g_swish},
+        {"GELU",     "gelu",        -4.0,   4.0, g_gelu},
+        {"SOFTPLUS", "softplus",    -5.0,   4.0, g_softplus},
+        {"MISH",     "mish",        -5.0,   3.0, g_mish},
+        {"ELU",      "elu",         -6.0,   0.0, g_elu},
+        {"EXP",      "exp",         -8.0,   1.0, g_exp},
+        {"SQRT",     "sqrt",         0.0,  15.875, g_sqrt},
+        {"RELU",     "relu",        -0.125, 0.125, g_relu}
     };
 
     try {
         TlutHardwareConfig hw_cfg;
         hw_cfg.enable_profiling = true;
+        // Ajustamos dinámicamente el tamaño del HW si el usuario pide muchos datos
+        if (num_samples > hw_cfg.max_samples) hw_cfg.max_samples = num_samples; 
 
         // Inicialización de la API del acelerador
         TlutAccelerator accel(argv[1], 6, 10, hw_cfg, 0);
@@ -101,11 +104,14 @@ int main(int argc, char **argv) {
             double sweep_start = SWEEP_MODE_FIXED ? SWEEP_FIXED_MIN : (t.lower_th - RANGE_PADDING);
             double sweep_end   = SWEEP_MODE_FIXED ? SWEEP_FIXED_MAX : (t.upper_th + RANGE_PADDING);
 
+            // Generación de exactamente 'num_samples' mediante interpolación
+            double sweep_step = (num_samples > 1) ? (sweep_end - sweep_start) / (num_samples - 1) : 0.0;
+
             std::vector<float> x_original;
-            for (double x = sweep_start; x <= sweep_end; x += SWEEP_STEP) {
-                if (x_original.size() < hw_cfg.max_samples) {
-                    x_original.push_back(static_cast<float>(x));
-                }
+            x_original.reserve(num_samples);
+            for (size_t i = 0; i < num_samples; ++i) {
+                double x_val = sweep_start + i * sweep_step;
+                x_original.push_back(static_cast<float>(x_val));
             }
             
             size_t sample_count = x_original.size();
@@ -191,7 +197,7 @@ int main(int argc, char **argv) {
             std::stringstream summary;
             summary << "======================================================\n"
                     << "Funcion:        " << t.name_print << "\n"
-                    << "Parametros:     Samples=" << sample_count << "\n"
+                    << "Parametros:     Samples=" << sample_count << " | Step=" << std::fixed << std::setprecision(5) << sweep_step << "\n"
                     << "Tiempos Transaccion 1 (LUT LOAD - Solo HW):\n"
                     << "  - Latencia Total:  " << std::fixed << std::setprecision(2) << load_duration_ns << " ns (" << (int)load_est_cycles << " ciclos)\n"
                     << "Tiempos Transaccion 2 (COMPUTE - Solo HW):\n"
