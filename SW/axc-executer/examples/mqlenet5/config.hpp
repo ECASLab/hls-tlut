@@ -25,18 +25,18 @@
  */
 static constexpr std::pair<int, int> kQT[] = {
     {Q_CONV_BW, Q_CONV_INT},   /* Conv 2D */
-    {Q_ADD2D_BW, Q_ADD2D_INT}, /* Add 2D*/
+    {16, 6}, /* Add 2D*/ //
     {Q_ADD2D_BW, Q_ADD2D_INT}, /* Not needed */
     {Q_CONV_BW, Q_CONV_INT},   /* Conv 2D */
-    {Q_ADD2D_BW, Q_ADD2D_INT}, /* Add 2D */
+    {16, 6}, /* Add 2D */ //
     {Q_ADD2D_BW, Q_ADD2D_INT}, /* Not needed */
     {Q_DENSE_BW, Q_DENSE_INT}, /* Dense */
-    {Q_ADD1D_BW, Q_ADD1D_INT}, /* Add 1D */
+    {16, 6}, /* Add 1D */ //
+    {Q_DENSE_BW, Q_DENSE_INT}, /* Dense */
+    {16, 6}, /* Add 1D */ //
     {Q_DENSE_BW, Q_DENSE_INT}, /* Dense */
     {Q_ADD1D_BW, Q_ADD1D_INT}, /* Add 1D */
-    {Q_DENSE_BW, Q_DENSE_INT}, /* Dense */
-    {Q_ADD1D_BW, Q_ADD1D_INT}, /* Add 1D */
-    {20, 10}                    /* Softmax */ //MODIFICADO!
+    {24, 10}                    /* Softmax */ //MODIFICADO!
 };
 
 /**
@@ -54,8 +54,8 @@ static constexpr std::tuple<Layers, DataBits, IntBits, DropBits, DropBits,
         {Layers::CONV2D, 12, 4, 2, 1, ArithApprox::EXACT_A},
         {Layers::DENSE, 12, 6, 1, 1, ArithApprox::EXACT_A},
         {Layers::DENSE, 14, 6, 1, 1, ArithApprox::EXACT_A},
-        {Layers::ADD, 12, 4, 1, 1, ArithApprox::EXACT_A},
-        {Layers::ADD, 14, 6, 1, 1, ArithApprox::EXACT_A},
+        {Layers::ADD, 16, 6, 1, 1, ArithApprox::EXACT_A}, //MODIFICADO!
+        {Layers::ADD, 16, 6, 1, 1, ArithApprox::EXACT_A}, //MODIFICADO!
         {Layers::AVG_POOL, 12, 4, 1, 1, ArithApprox::EXACT_A},
         {Layers::REDUCT_ACTIVATION, 20, 10, 1, 1, ArithApprox::EXACT_A}, //MODIFICADO
 };
