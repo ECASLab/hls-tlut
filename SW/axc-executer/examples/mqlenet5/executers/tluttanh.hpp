@@ -55,8 +55,9 @@ static void ExpTlut(const T * input_data, T * output_data, const int size) {
     max_val = input_data[i] > max_val ? input_data[i] : max_val;
   }
   for (int i = 0; i < size; ++i) {
-    float val = input_data[i] - max_val;
-    in_vec.push_back(val);
+    T val = input_data[i] - max_val;
+    float valf = val;
+    in_vec.push_back(valf);
   }
 
   std::cout << "Using ExpTlut" << std::endl;
@@ -66,7 +67,9 @@ static void ExpTlut(const T * input_data, T * output_data, const int size) {
 
   std::vector<float> out_vec = accel.process(in_vec);
 
-  std::copy(out_vec.begin(), out_vec.end(), output_data);
+  for (int i = 0; i < size; ++i) {
+    output_data = T{out_vec[i]};
+  }
 }
 
 namespace Kernels {
