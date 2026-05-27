@@ -68,7 +68,7 @@ static void ExpTlut(const T * input_data, T * output_data, const int size) {
   std::vector<float> out_vec = accel.process(in_vec);
 
   for (int i = 0; i < size; ++i) {
-    output_data = T{out_vec[i]};
+    output_data[i] = T{out_vec[i]};
   }
 }
 
