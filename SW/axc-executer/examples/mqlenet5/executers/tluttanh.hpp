@@ -47,24 +47,25 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
 }
 
 template <typename T>
-static void ExpTlut(const T *input_data, T *output_data, const int size) {
+static void ExpTlut(const T * input_data, T * output_data, const int size) {
   T max_val = 0.f;
+  std::vector<float> in_vec;
+
   for (int i = 0; i < size; ++i) {
     max_val = input_data[i] > max_val ? input_data[i] : max_val;
   }
   for (int i = 0; i < size; ++i) {
-    output_data[i] = input_data[i] - max_val;
+    float val = input_data[i] - max_val;
+    in_vec.push_back(val);
   }
 
   std::cout << "Using ExpTlut" << std::endl;
-  
-  std::vector<float> in_vec(output_data, output_data + size);
-  
+
   auto& accel = get_tlut_accelerator();
   accel.load("exp");
-  
+
   std::vector<float> out_vec = accel.process(in_vec);
-  
+
   std::copy(out_vec.begin(), out_vec.end(), output_data);
 }
 
