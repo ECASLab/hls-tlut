@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
     }
 
     std::string version = (argc >= 3) ? argv[2] : "default";
-    size_t num_samples = (argc >= 4) ? std::stoul(argv[3]) : 10000;
+    size_t num_samples = (argc >= 4) ? std::stoul(argv[3]) : 1000;
 
     std::string filename_res = "hw_results_" + version + ".txt";
     std::string filename_log = "hw_interaction_" + version + ".log";
@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     const double SWEEP_FIXED_MAX = 16.0;
     
     // Iteraciones para filtrar el Jitter del SO y obtener latencia pura de HW
-    const int PROFILING_ITERATIONS = 5;
+    const int PROFILING_ITERATIONS = 50;
 
     std::vector<TestCase> tests = {
         {"SIGMOID",  "sigmoid",     -6.0,   6.0, g_sigmoid},

@@ -36,7 +36,7 @@ static constexpr std::pair<int, int> kQT[] = {
     {Q_ADD1D_BW, Q_ADD1D_INT}, /* Add 1D */
     {Q_DENSE_BW, Q_DENSE_INT}, /* Dense */
     {Q_ADD1D_BW, Q_ADD1D_INT}, /* Add 1D */
-    {16, 6}                    /* Softmax */
+    {20, 10}                    /* Softmax */ //MODIFICADO!
 };
 
 /**
@@ -57,7 +57,7 @@ static constexpr std::tuple<Layers, DataBits, IntBits, DropBits, DropBits,
         {Layers::ADD, 12, 4, 1, 1, ArithApprox::EXACT_A},
         {Layers::ADD, 14, 6, 1, 1, ArithApprox::EXACT_A},
         {Layers::AVG_POOL, 12, 4, 1, 1, ArithApprox::EXACT_A},
-        {Layers::REDUCT_ACTIVATION, 16, 6, 1, 1, ArithApprox::EXACT_A},
+        {Layers::REDUCT_ACTIVATION, 20, 10, 1, 1, ArithApprox::EXACT_A}, //MODIFICADO
 };
 
 /**
