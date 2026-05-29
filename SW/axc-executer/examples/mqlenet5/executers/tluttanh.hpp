@@ -33,23 +33,40 @@ inline TlutAccelerator& get_tlut_accelerator() {
 }
 
 template <typename T>
-static void TanhTlut(const T* input_data, T* output_data, const int size) {
-    std::cout << "Using TanhTlut" << std::endl;
+static void TanhTlut(const T *input_data, T *output_data, const int size) {
+  std::cout << "\n[DEBUG TLUT] Entrando a TanhTlut. Tamaño del lote: " << size << std::endl;
+  
+  auto& accel = get_tlut_accelerator();
+  accel.load("tanh");
 
-    auto& accel = get_tlut_accelerator();
-    accel.load("tanh");
+  uint16_t* in_map = accel.get_in_map();
+  
+  // Imprimir las primeras 5 muestras para ver el formato real de los bits
+  std::cout << "[DEBUG TLUT] Muestras de entrada (Humano vs Bits .V):" << std::endl;
+  for (int i = 0; i < std::min(size, 5); ++i) {
+      float valor_humano = static_cast<float>(input_data[i]);
+      uint16_t bits_puros = input_data[i].V;
+      std::cout << "  Idx [" << i << "] -> Real: " << valor_humano 
+                << " | Bits (.V): 0x" << std::hex << bits_puros << std::dec 
+                << " | Sizeof de T: " << sizeof(input_data[i]) << " bytes" << std::endl;
+  }
 
-    uint16_t* in_map = accel.get_in_map();
-    for (int i = 0; i < size; ++i) {
-        in_map[i] = input_data[i].V;  // Se inyecta el bit puro .V a la memoria
-    }
+  for (int i = 0; i < size; ++i) {
+    in_map[i] = input_data[i].V; 
+  }
 
-    accel.execute_process(size);
+  accel.execute_process(size);
 
-    const uint16_t* out_map = accel.get_out_map();
-    for (int i = 0; i < size; ++i) {
-        output_data[i].V = out_map[i];  // Se recupera el bit puro
-    }
+  const uint16_t* out_map = accel.get_out_map();
+  
+  std::cout << "[DEBUG TLUT] Muestras de salida del HW (Bits .V):" << std::endl;
+  for (int i = 0; i < std::min(size, 5); ++i) {
+      std::cout << "  Idx [" << i << "] -> HW extrajo: 0x" << std::hex << out_map[i] << std::dec << std::endl;
+  }
+
+  for (int i = 0; i < size; ++i) {
+    output_data[i].V = out_map[i]; 
+  }
 }
 
 template <typename T>
