@@ -33,102 +33,53 @@ inline TlutAccelerator& get_tlut_accelerator() {
 }
 
 template <typename T>
-static void TanhTlut(const T *input_data, T *output_data, const int size) {
-  std::cout << "\n========================================================================================" << std::endl;
-  std::cout << "[DEBUG TLUT] Entrando a TanhTlut | Tamaño del lote: " << size << std::endl;
-  std::cout << "========================================================================================" << std::endl;
-  
-  auto& accel = get_tlut_accelerator();
-  accel.load("tanh");
+static void TanhTlut(const T* input_data, T* output_data, const int size) {
+    std::cout << "Using TanhTlut" << std::endl;
 
-  uint16_t* in_map = accel.get_in_map();
-  
-  std::cout << "\n[DEBUG TLUT] MUESTRAS DE ENTRADA (Host -> FPGA):" << std::endl;
-  std::cout << "  Idx   | Valor Real (float) | Bits Hex  | Bits Dec (signed) | Tamaño T" << std::endl;
-  std::cout << "  ------|--------------------|-----------|-------------------|-----------" << std::endl;
-  for (int i = 0; i < std::min(size, 5); ++i) {
-      float valor_humano = static_cast<float>(input_data[i]);
-      uint16_t bits_puros = input_data[i].V;
-      int16_t bits_signed = static_cast<int16_t>(bits_puros); // Interpretación con signo para el humano
-      
-      printf("  [%3d] | %18.6f | 0x%04x    | %17d | %d bytes\n", 
-             i, valor_humano, bits_puros, bits_signed, (int)sizeof(input_data[i]));
-  }
+    auto& accel = get_tlut_accelerator();
+    accel.load("tanh");
 
-  for (int i = 0; i < size; ++i) {
-    in_map[i] = input_data[i].V; 
-  }
+    uint16_t* in_map = accel.get_in_map();
+    for (int i = 0; i < size; ++i) {
+        in_map[i] = input_data[i].V;  // Se inyecta el bit puro .V a la memoria
+    }
 
-  accel.execute_process(size);
+    accel.execute_process(size);
 
-  const uint16_t* out_map = accel.get_out_map();
-  
-  std::cout << "\n[DEBUG TLUT] MUESTRAS DE SALIDA (FPGA -> Host):" << std::endl;
-  std::cout << "  Idx   | HW Extrajo (Hex) | HW Extrajo (Dec signed)" << std::endl;
-  std::cout << "  ------|------------------|-------------------------" << std::endl;
-  for (int i = 0; i < std::min(size, 5); ++i) {
-      int16_t out_signed = static_cast<int16_t>(out_map[i]);
-      printf("  [%3d] | 0x%04x           | %d\n", i, out_map[i], out_signed);
-  }
-  std::cout << "========================================================================================\n" << std::endl;
-
-  for (int i = 0; i < size; ++i) {
-    output_data[i].V = out_map[i]; 
-  }
+    const uint16_t* out_map = accel.get_out_map();
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];  // Se recupera el bit puro
+    }
 }
 
 template <typename T>
-static void ExpTlut(const T *input_data, T *output_data, const int size) {
-  // Lógica original de centrado (Safe Softmax)
-  T max_val = 0.f;
-  for (int i = 0; i < size; ++i) {
-    max_val = input_data[i] > max_val ? input_data[i] : max_val;
-  }
-  for (int i = 0; i < size; ++i) {
-    output_data[i] = input_data[i] - max_val;
-  }
+static void ExpTlut(const T* input_data, T* output_data, const int size) {
+    // Lógica original de centrado (Safe Softmax)
+    T max_val = 0.f;
+    for (int i = 0; i < size; ++i) {
+        max_val = input_data[i] > max_val ? input_data[i] : max_val;
+    }
+    for (int i = 0; i < size; ++i) {
+        output_data[i] = input_data[i] - max_val;
+    }
 
-  std::cout << "\n========================================================================================" << std::endl;
-  std::cout << "[DEBUG SOFTMAX] Entrando a ExpTlut | Tamaño del lote: " << size << std::endl;
-  std::cout << "[DEBUG SOFTMAX] Valor Máximo encontrado en Host: " << static_cast<float>(max_val) << std::endl;
-  std::cout << "========================================================================================" << std::endl;
-  
-  auto& accel = get_tlut_accelerator();
-  accel.load("exp");
+    std::cout << "Using ExpTlut" << std::endl;
 
-  uint16_t* in_map = accel.get_in_map();
-  
-  std::cout << "\n[DEBUG SOFTMAX] MUESTRAS DE ENTRADA (Datos Restados -> FPGA):" << std::endl;
-  std::cout << "  Idx   | Valor Restado (float) | Bits Hex  | Bits Dec (signed)" << std::endl;
-  std::cout << "  ------|-----------------------|-----------|-------------------" << std::endl;
-  for (int i = 0; i < std::min(size, 5); ++i) {
-      float valor_humano = static_cast<float>(output_data[i]);
-      uint16_t bits_puros = output_data[i].V;
-      int16_t bits_signed = static_cast<int16_t>(bits_puros);
-      
-      printf("  [%3d] | %21.6f | 0x%04x    | %17d\n", i, valor_humano, bits_puros, bits_signed);
-  }
+    auto& accel = get_tlut_accelerator();
+    accel.load("exp");
 
-  for (int i = 0; i < size; ++i) {
-    in_map[i] = output_data[i].V; 
-  }
+    uint16_t* in_map = accel.get_in_map();
+    for (int i = 0; i < size; ++i) {
+        // Como la resta se guardó en output_data, enviamos eso al hardware
+        in_map[i] = output_data[i].V;
+    }
 
-  accel.execute_process(size);
+    accel.execute_process(size);
 
-  const uint16_t* out_map = accel.get_out_map();
-  
-  std::cout << "\n[DEBUG SOFTMAX] MUESTRAS DE SALIDA (Resultados e^x FPGA -> Host):" << std::endl;
-  std::cout << "  Idx   | HW Extrajo (Hex) | HW Extrajo (Dec signed)" << std::endl;
-  std::cout << "  ------|------------------|-------------------------" << std::endl;
-  for (int i = 0; i < std::min(size, 5); ++i) {
-      int16_t out_signed = static_cast<int16_t>(out_map[i]);
-      printf("  [%3d] | 0x%04x           | %d\n", i, out_map[i], out_signed);
-  }
-  std::cout << "========================================================================================\n" << std::endl;
-
-  for (int i = 0; i < size; ++i) {
-    output_data[i].V = out_map[i];
-  }
+    const uint16_t* out_map = accel.get_out_map();
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];
+    }
 }
 
 namespace Kernels {
