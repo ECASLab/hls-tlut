@@ -70,33 +70,48 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
 }
 
 template <typename T>
-static void ExpTlut(const T* input_data, T* output_data, const int size) {
-    // Lógica original de centrado (Safe Softmax)
-    T max_val = 0.f;
-    for (int i = 0; i < size; ++i) {
-        max_val = input_data[i] > max_val ? input_data[i] : max_val;
-    }
-    for (int i = 0; i < size; ++i) {
-        output_data[i] = input_data[i] - max_val;
-    }
+static void ExpTlut(const T *input_data, T *output_data, const int size) {
+  // Lógica original de centrado (Safe Softmax)
+  T max_val = 0.f;
+  for (int i = 0; i < size; ++i) {
+    max_val = input_data[i] > max_val ? input_data[i] : max_val;
+  }
+  for (int i = 0; i < size; ++i) {
+    output_data[i] = input_data[i] - max_val;
+  }
 
-    std::cout << "Using ExpTlut" << std::endl;
+  std::cout << "\n[DEBUG SOFTMAX] Entrando a ExpTlut. Tamaño del lote: " << size << std::endl;
+  std::cout << "[DEBUG SOFTMAX] Valor Máximo encontrado (Host): " << static_cast<float>(max_val) << std::endl;
+  
+  auto& accel = get_tlut_accelerator();
+  accel.load("exp");
 
-    auto& accel = get_tlut_accelerator();
-    accel.load("exp");
+  uint16_t* in_map = accel.get_in_map();
+  
+  std::cout << "[DEBUG SOFTMAX] Muestras de entrada (Datos restados vs Bits .V a la FPGA):" << std::endl;
+  for (int i = 0; i < std::min(size, 5); ++i) {
+      float valor_humano = static_cast<float>(output_data[i]);
+      uint16_t bits_puros = output_data[i].V;
+      std::cout << "  Idx [" << i << "] -> Restado: " << valor_humano 
+                << " | Bits (.V): 0x" << std::hex << bits_puros << std::dec << std::endl;
+  }
 
-    uint16_t* in_map = accel.get_in_map();
-    for (int i = 0; i < size; ++i) {
-        // Como la resta se guardó en output_data, enviamos eso al hardware
-        in_map[i] = output_data[i].V;
-    }
+  for (int i = 0; i < size; ++i) {
+    in_map[i] = output_data[i].V; 
+  }
 
-    accel.execute_process(size);
+  accel.execute_process(size);
 
-    const uint16_t* out_map = accel.get_out_map();
-    for (int i = 0; i < size; ++i) {
-        output_data[i].V = out_map[i];
-    }
+  const uint16_t* out_map = accel.get_out_map();
+  
+  std::cout << "[DEBUG SOFTMAX] Muestras de salida del HW (Resultados de e^x en Bits .V):" << std::endl;
+  for (int i = 0; i < std::min(size, 5); ++i) {
+      std::cout << "  Idx [" << i << "] -> HW extrajo: 0x" << std::hex << out_map[i] << std::dec << std::endl;
+  }
+
+  for (int i = 0; i < size; ++i) {
+    output_data[i].V = out_map[i];
+  }
 }
 
 namespace Kernels {
