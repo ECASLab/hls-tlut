@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2023-2026
  * Authors:
- * Luis G. Leon Vega <luis.leon@ieee.org>
+ *        Luis G. Leon Vega <luis.leon@ieee.org>
  */
 
 #pragma once
@@ -10,6 +10,7 @@
 #include <cmath>
 #include <iostream>
 #include <numeric>
+
 #ifdef WITH_OMP
 #include <omp.h>
 #endif
@@ -21,9 +22,8 @@
 #include <layer.hpp>
 #include <runtime.hpp>
 
-#include "../../../../api/tlut_api.hpp"  // t-LUT Accelerator API
+#include "../../../../api/tlut_api.hpp"  // Instancia de la API
 
-// Funciones de t-LUT para tanh y exp, utilizando el acelerador t-LUT definido en tlut_api.hpp
 inline TlutAccelerator& get_tlut_accelerator() {
     static TlutHardwareConfig hw_cfg;
     hw_cfg.max_samples = 50000000;
@@ -36,17 +36,25 @@ template <typename T>
 static void TanhTlut(const T* input_data, T* output_data, const int size) {
     std::cout << "Using TanhTlut" << std::endl;
 
-    // Implementacion de t-LUT para tanh.
     auto& accel = get_tlut_accelerator();
     accel.load("tanh");
 
-    accel.process(reinterpret_cast<const int16_t*>(input_data),
-                  reinterpret_cast<int16_t*>(output_data),
-                  static_cast<size_t>(size));
+    uint16_t* in_map = accel.get_in_map();
+    for (int i = 0; i < size; ++i) {
+        in_map[i] = input_data[i].V;  // Se inyecta el bit puro .V a la memoria
+    }
+
+    accel.execute_process(size);
+
+    const uint16_t* out_map = accel.get_out_map();
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];  // Se recupera el bit puro
+    }
 }
 
 template <typename T>
 static void ExpTlut(const T* input_data, T* output_data, const int size) {
+    // Lógica original de centrado (Safe Softmax)
     T max_val = 0.f;
     for (int i = 0; i < size; ++i) {
         max_val = input_data[i] > max_val ? input_data[i] : max_val;
@@ -54,15 +62,24 @@ static void ExpTlut(const T* input_data, T* output_data, const int size) {
     for (int i = 0; i < size; ++i) {
         output_data[i] = input_data[i] - max_val;
     }
+
     std::cout << "Using ExpTlut" << std::endl;
 
-    // Implementacion de t-LUT para tanh.
     auto& accel = get_tlut_accelerator();
     accel.load("exp");
 
-    accel.process(reinterpret_cast<const int16_t*>(output_data),
-                  reinterpret_cast<int16_t*>(output_data),
-                  static_cast<size_t>(size));
+    uint16_t* in_map = accel.get_in_map();
+    for (int i = 0; i < size; ++i) {
+        // Como la resta se guardó en output_data, enviamos eso al hardware
+        in_map[i] = output_data[i].V;
+    }
+
+    accel.execute_process(size);
+
+    const uint16_t* out_map = accel.get_out_map();
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];
+    }
 }
 
 namespace Kernels {

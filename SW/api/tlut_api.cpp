@@ -7,15 +7,23 @@
 #include "tlut_api.hpp"
 #include <fstream>
 #include <chrono>
-#include <cstring>
+#include <vector>
 #include "xrt/xrt_bo.h"
 #include "xrt/xrt_device.h"
 #include "xrt/xrt_kernel.h"
 
-// Estructura para empaquetar bloques de 128-bits para las BRAMs de la FPGA
+// Función auxiliar estática (Solo existe en este archivo)
+static void read_txt_to_vector(const std::string& filepath, std::vector<int>& vec) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        throw std::runtime_error("[TLUT_API] File not found: " + filepath);
+    }
+    int val; 
+    while (file >> val) vec.push_back(val);
+}
+
 struct uint128_raw { uint32_t data[4]; };
 
-// Estructura empaquetada para el registro de control del hardware (AXI-Lite)
 struct __attribute__((packed)) tlut_config_t {
     int16_t c_sym;
     int16_t upper_threshold;
@@ -35,20 +43,17 @@ TlutAccelerator::TlutAccelerator(const std::string& xclbin_path,
                                  int device_id)
     : hw_cfg_(hw_config) {
     
-    // Directorio dinámico dictado por el formato (ej. Q6_10)
     format_folder_ = "Q" + std::to_string(hw_cfg_.q_int) + "_" + std::to_string(hw_cfg_.q_frac);
 
     auto device = new xrt::device(device_id);
     auto uuid = device->load_xclbin(xclbin_path);
     auto kernel = new xrt::kernel(*device, uuid, hw_cfg_.kernel_name.c_str());
 
-    // Reserva estática de BRAM en tarjeta según configuración
-    bo_in_  = new xrt::bo(*device, hw_cfg_.max_samples * sizeof(int16_t), kernel->group_id(0));
-    bo_out_ = new xrt::bo(*device, hw_cfg_.max_samples * sizeof(int16_t), kernel->group_id(1));
+    bo_in_  = new xrt::bo(*device, hw_cfg_.max_samples * sizeof(uint16_t), kernel->group_id(0));
+    bo_out_ = new xrt::bo(*device, hw_cfg_.max_samples * sizeof(uint16_t), kernel->group_id(1));
     bo_d_   = new xrt::bo(*device, hw_cfg_.dlut_words * sizeof(uint128_raw), kernel->group_id(2));
     bo_e_   = new xrt::bo(*device, hw_cfg_.elut_words * sizeof(uint128_raw), kernel->group_id(3));
 
-    // Pre-instanciación de comandos para reducir latencia iterativa
     auto run_load = new xrt::run(*kernel);
     auto run_process = new xrt::run(*kernel);
 
@@ -83,7 +88,6 @@ double TlutAccelerator::get_fpga_frequency_mhz() const { return hw_cfg_.fpga_fre
 double TlutAccelerator::get_last_load_duration_ns() const { return last_load_ns_; }
 double TlutAccelerator::get_last_compute_duration_ns() const { return last_compute_ns_; }
 
-// Método centralizado para perfilar y ejecutar en hardware
 void TlutAccelerator::execute_run(void* run_obj, double& telemetry_ns) {
     auto& run = *static_cast<xrt::run*>(run_obj);
     if (hw_cfg_.enable_profiling) {
@@ -96,15 +100,6 @@ void TlutAccelerator::execute_run(void* run_obj, double& telemetry_ns) {
         run.start();
         run.wait();
     }
-}
-
-void TlutAccelerator::read_txt_to_vector(const std::string& filepath, std::vector<int>& vec) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        throw std::runtime_error("[TLUT_API] File not found: " + filepath);
-    }
-    int val; 
-    while (file >> val) vec.push_back(val);
 }
 
 void TlutAccelerator::load(const std::string& func_name) {
@@ -144,8 +139,6 @@ void TlutAccelerator::load(const std::string& func_name) {
     uint128_raw* d_map = bo_d.map<uint128_raw*>();
     uint128_raw* e_map = bo_e.map<uint128_raw*>();
 
-    // Transferencia exacta: Solo se escriben las palabras necesarias dictadas por Python
-    // Empaquetado ELUT (4 bits por elemento)
     for (size_t c = 0; c < e_cap; c++) {
         uint128_raw word = {0, 0, 0, 0}; 
         for (size_t j = 0; j < 32; j++) {
@@ -158,7 +151,6 @@ void TlutAccelerator::load(const std::string& func_name) {
         e_map[c] = word;
     }
 
-    // Empaquetado DLUT (16 bits por elemento)
     for (size_t c = 0; c < d_words_needed; c++) {
         uint128_raw word = {0, 0, 0, 0};
         for (size_t j = 0; j < 8; j++) {
@@ -171,7 +163,6 @@ void TlutAccelerator::load(const std::string& func_name) {
         d_map[c] = word;
     }
 
-    // Sincronización PCIe de datos útiles únicamente
     bo_d.sync(XCL_BO_SYNC_BO_TO_DEVICE, e_cap * sizeof(uint128_raw), 0);
     bo_e.sync(XCL_BO_SYNC_BO_TO_DEVICE, d_words_needed * sizeof(uint128_raw), 0);
 
@@ -183,24 +174,23 @@ void TlutAccelerator::load(const std::string& func_name) {
     execute_run(run_load_, last_load_ns_);
 }
 
-// ============================================================================
-// Procesamiento de Inferencia (Transferencia Pura con Punteros Crudos)
-// ============================================================================
-void TlutAccelerator::process(const int16_t* input_ptr, int16_t* output_ptr, size_t samples_count) {
+uint16_t* TlutAccelerator::get_in_map() {
+    return static_cast<xrt::bo*>(bo_in_)->map<uint16_t*>();
+}
+
+const uint16_t* TlutAccelerator::get_out_map() {
+    return static_cast<xrt::bo*>(bo_out_)->map<uint16_t*>();
+}
+
+void TlutAccelerator::execute_process(size_t samples_count) {
     if (samples_count > hw_cfg_.max_samples) {
         throw std::runtime_error("[TLUT_API] El vector de entrada excede el limite pre-alocado de hardware.");
     }
 
     auto& bo_in = *static_cast<xrt::bo*>(bo_in_);
     auto& bo_out = *static_cast<xrt::bo*>(bo_out_);
-    int16_t* in_map = bo_in.map<int16_t*>();
-    int16_t* out_map = bo_out.map<int16_t*>();
 
-    // Zero-cost: Bypass directo al Host Memory Mapped Buffer utilizando std::memcpy para máxima velocidad
-    std::memcpy(in_map, input_ptr, samples_count * sizeof(int16_t));
-    
-    // Sincronización del tamaño exacto del batch a procesar
-    bo_in.sync(XCL_BO_SYNC_BO_TO_DEVICE, samples_count * sizeof(int16_t), 0);
+    bo_in.sync(XCL_BO_SYNC_BO_TO_DEVICE, samples_count * sizeof(uint16_t), 0);
 
     tlut_config_t cfg_run = {0};
     cfg_run.c_sym = c_sym_; 
@@ -215,9 +205,5 @@ void TlutAccelerator::process(const int16_t* input_ptr, int16_t* output_ptr, siz
     static_cast<xrt::run*>(run_process_)->set_arg(4, cfg_run); 
     execute_run(run_process_, last_compute_ns_);
 
-    // Recuperación del tamaño exacto procesado
-    bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE, samples_count * sizeof(int16_t), 0);
-
-    // Copia directa al puntero destino provisto por el usuario
-    std::memcpy(output_ptr, out_map, samples_count * sizeof(int16_t));
+    bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE, samples_count * sizeof(uint16_t), 0);
 }
