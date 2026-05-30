@@ -79,34 +79,51 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
 
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
-  // Lógica original de centrado (Safe Softmax)
+  // Lógica original de centrado (Safe Softmax) INTACTA
   T max_val = 0.f;
   for (int i = 0; i < size; ++i) {
     max_val = input_data[i] > max_val ? input_data[i] : max_val;
   }
-  for (int i = 0; i < size; ++i) {
-    output_data[i] = input_data[i] - max_val;
-  }
 
   std::cout << "\n========================================================================================" << std::endl;
-  std::cout << "[DEBUG SOFTMAX] Entrando a ExpTlut | Tamaño del lote: " << size << std::endl;
-  std::cout << "[DEBUG SOFTMAX] Valor Máximo encontrado en Host: " << static_cast<float>(max_val) << std::endl;
+  std::cout << "[DEBUG SOFTMAX] EXPLORACIÓN QUIRÚRGICA | Tamaño del lote: " << size << std::endl;
+  std::cout << "[DEBUG SOFTMAX] Valor Máximo encontrado (max_val): " << static_cast<float>(max_val) << std::endl;
   std::cout << "========================================================================================" << std::endl;
-  
+
+  std::cout << "\n[FASE 1] ANÁLISIS DE LA RESTA EN EL HOST (Cazando desbordes):" << std::endl;
+  std::cout << "  Idx   | Entrada Real | (Entrada - Max) Real | Resultado asimilado (ap_fixed)" << std::endl;
+  std::cout << "  ------|--------------|----------------------|---------------------------------" << std::endl;
+
+  for (int i = 0; i < size; ++i) {
+    // ------------------------------------------------------------------
+    // LA LÓGICA ORIGINAL NO SE TOCA: Asignación directa
+    // ------------------------------------------------------------------
+    output_data[i] = input_data[i] - max_val;
+
+    // Diagnóstico de los primeros 5 datos (Solo lectura, no altera el flujo)
+    if (i < 5) {
+        float in_float = static_cast<float>(input_data[i]);
+        float max_float = static_cast<float>(max_val);
+        float math_real = in_float - max_float; // La resta ideal en CPU flotante
+        float ap_fixed_result = static_cast<float>(output_data[i]); // Lo que sobrevivió en el tensor
+
+        printf("  [%3d] | %12.6f | %20.6f | %31.6f\n", i, in_float, math_real, ap_fixed_result);
+    }
+  }
+
   auto& accel = get_tlut_accelerator();
   accel.load("exp");
-
   uint16_t* in_map = accel.get_in_map();
-  
-  std::cout << "\n[DEBUG SOFTMAX] MUESTRAS DE ENTRADA (Datos Restados -> FPGA):" << std::endl;
-  std::cout << "  Idx   | Valor Restado (float) | Bits Hex  | Bits Dec (signed)" << std::endl;
-  std::cout << "  ------|-----------------------|-----------|-------------------" << std::endl;
+
+  std::cout << "\n[FASE 2] DATOS ENVIADOS A LA FPGA (Lo que viaja por PCIe):" << std::endl;
+  std::cout << "  Idx   | Float Interpretado | Bits Hex  | Cuantizado (Dec signed)" << std::endl;
+  std::cout << "  ------|--------------------|-----------|-------------------------" << std::endl;
   for (int i = 0; i < std::min(size, 5); ++i) {
       float valor_humano = static_cast<float>(output_data[i]);
       uint16_t bits_puros = output_data[i].V;
       int16_t bits_signed = static_cast<int16_t>(bits_puros);
-      
-      printf("  [%3d] | %21.6f | 0x%04x    | %17d\n", i, valor_humano, bits_puros, bits_signed);
+
+      printf("  [%3d] | %18.6f | 0x%04x    | %23d\n", i, valor_humano, bits_puros, bits_signed);
   }
 
   for (int i = 0; i < size; ++i) {
@@ -114,15 +131,18 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
   }
 
   accel.execute_process(size);
-
   const uint16_t* out_map = accel.get_out_map();
-  
-  std::cout << "\n[DEBUG SOFTMAX] MUESTRAS DE SALIDA (Resultados e^x FPGA -> Host):" << std::endl;
-  std::cout << "  Idx   | HW Extrajo (Hex) | HW Extrajo (Dec signed)" << std::endl;
-  std::cout << "  ------|------------------|-------------------------" << std::endl;
+
+  std::cout << "\n[FASE 3] DATOS RECIBIDOS DE LA FPGA (Resultados e^x):" << std::endl;
+  std::cout << "  Idx   | Bits Hex  | Cuantizado (Dec signed) | Float Calculado (Escala /1024)" << std::endl;
+  std::cout << "  ------|-----------|-------------------------|-------------------------------" << std::endl;
   for (int i = 0; i < std::min(size, 5); ++i) {
       int16_t out_signed = static_cast<int16_t>(out_map[i]);
-      printf("  [%3d] | 0x%04x           | %d\n", i, out_map[i], out_signed);
+      
+      // Proyectamos el valor cuantizado de regreso a float para el humano (asumiendo formato Q6.10)
+      float float_q6_10 = static_cast<float>(out_signed) / 1024.0f;
+      
+      printf("  [%3d] | 0x%04x    | %23d | %30.6f\n", i, out_map[i], out_signed, float_q6_10);
   }
   std::cout << "========================================================================================\n" << std::endl;
 
