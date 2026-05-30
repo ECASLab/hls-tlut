@@ -36,7 +36,7 @@ static constexpr std::pair<int, int> kQT[] = {
     {16, 6},                    /* Add 1D */
     {Q_DENSE_BW, Q_DENSE_INT},   /* Dense */
     {Q_ADD1D_BW, Q_ADD1D_INT},  /* Add 1D */
-    {20, 4}                     /* Softmax */
+    {16, 6}                     /* Softmax */
 };
 
 /**
