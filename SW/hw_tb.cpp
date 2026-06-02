@@ -14,7 +14,8 @@
 #include <limits>
 #include <locale>
 
-#include "api/tlut_api.cpp"
+// Asegúrate de incluir el Header correspondiente de tu API
+#include "api/tlut_api.hpp"
 
 // ----------------------------------------------------------------------------
 // Reglas de Formato (Costa Rica / RAE)
@@ -97,11 +98,15 @@ int main(int argc, char **argv) {
     try {
         TlutHardwareConfig hw_cfg;
         hw_cfg.enable_profiling = true;
+        
         // Ajustamos dinámicamente el tamaño del HW si el usuario pide muchos datos
         if (num_samples > hw_cfg.max_samples) hw_cfg.max_samples = num_samples; 
 
-        // Inicialización de la API del acelerador
-        TlutAccelerator accel(argv[1], 6, 10, hw_cfg, 0);
+        // Escala de punto fijo basada en la configuración Q de hardware
+        double scale_factor = std::pow(2.0, hw_cfg.q_frac);
+
+        // Inicialización de la API del acelerador (Constructor actualizado)
+        TlutAccelerator accel(argv[1], hw_cfg, 0);
 
         // ==========================================================
         // WARM-UP TRANSACTION: Absorber latencia de inicialización PCIe
@@ -109,8 +114,12 @@ int main(int argc, char **argv) {
         std::cout << "[INFO] Realizando warm-up del bus PCIe y Driver XRT..." << std::endl;
         try {
             accel.load(tests[0].folder_name);
-            std::vector<float> dummy_data(256, 0.0f);
-            accel.process(dummy_data);
+            uint16_t* in_map = accel.get_in_map();
+            
+            // Inyectamos 256 ceros para despertar el hardware
+            for (size_t i = 0; i < 256; ++i) in_map[i] = 0;
+            
+            accel.execute_process(256);
         } catch (const std::exception& e) {
             std::cerr << "[WARNING] Excepcion durante warm-up: " << e.what() << std::endl;
         }
@@ -128,15 +137,22 @@ int main(int argc, char **argv) {
 
             std::vector<float> x_original;
             x_original.reserve(num_samples);
+            
+            // Llenado directo al espacio Zero-Copy de la FPGA
+            uint16_t* in_map = accel.get_in_map();
+            
             for (size_t i = 0; i < num_samples; ++i) {
                 double x_val = sweep_start + i * sweep_step;
                 x_original.push_back(static_cast<float>(x_val));
+                
+                // Conversión a punto fijo para el HW
+                int16_t fixed_val = static_cast<int16_t>(x_val * scale_factor);
+                in_map[i] = static_cast<uint16_t>(fixed_val);
             }
             
             size_t sample_count = x_original.size();
 
             // LUT Load con filtro de Jitter
-            // Verificado: Toma exclusivamente el valor mínimo de las iteraciones
             double load_duration_ns = std::numeric_limits<double>::max();
             for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
                 accel.load(t.folder_name);
@@ -146,15 +162,21 @@ int main(int argc, char **argv) {
             double load_est_cycles = load_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
 
             // Inference Compute con filtro de Jitter
-            // Verificado: Toma exclusivamente el valor mínimo de las iteraciones
             double comp_duration_ns = std::numeric_limits<double>::max();
-            std::vector<float> y_hw;
             for(int i = 0; i < PROFILING_ITERATIONS; ++i) {
-                y_hw = accel.process(x_original); // Validaremos los datos de la última iteración
+                accel.execute_process(sample_count);
                 double current_ns = accel.get_last_compute_duration_ns();
                 if(current_ns < comp_duration_ns) comp_duration_ns = current_ns;
             }
             double comp_est_cycles = comp_duration_ns * (hw_cfg.fpga_freq_mhz / 1000.0);
+            
+            // Extracción de datos procesados por el hardware
+            const uint16_t* out_map = accel.get_out_map();
+            std::vector<float> y_hw(sample_count);
+            for(size_t i = 0; i < sample_count; ++i) {
+                int16_t out_fixed = static_cast<int16_t>(out_map[i]);
+                y_hw[i] = static_cast<float>(out_fixed) / scale_factor;
+            }
             
             // Cálculos de Rendimiento (Throughput)
             double throughput_msps = (static_cast<double>(sample_count) / comp_duration_ns) * 1000.0;
