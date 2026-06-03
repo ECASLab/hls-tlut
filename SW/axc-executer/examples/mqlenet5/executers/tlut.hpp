@@ -22,7 +22,7 @@
 #include <layer.hpp>
 #include <runtime.hpp>
 
-#include "api/tlut_api.hpp"
+#include "../../../../api/tlut_api.hpp"
 
 inline TlutAccelerator& get_tlut_accelerator() {
     static TlutHardwareConfig hw_cfg;
