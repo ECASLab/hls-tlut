@@ -21,6 +21,7 @@
 
 #include "examples/common/kernels/arithmetic.hpp"
 #include "tluttanh.hpp"  // NOLINT
+#include "tlut.hpp"  // NOLINT
 
 /**
  * @brief Macro to select the arithmetic typing at compilation time
