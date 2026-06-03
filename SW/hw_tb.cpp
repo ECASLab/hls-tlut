@@ -113,12 +113,12 @@ int main(int argc, char** argv) {
     std::cerr.imbue(localeCR);
 
     if (argc < 2) {
-        std::cerr << "Uso: " << argv[0] << " <xclbin> [version] [num_samples]\n";
-        return EXIT_FAILURE;
-    }
+    std::cerr << "Uso: " << argv[0] << " <xclbin> [num_samples]\n";
+    return EXIT_FAILURE;
+}
 
-    const std::string version = (argc >= 3) ? argv[2] : "default";
-    std::size_t num_samples = (argc >= 4) ? static_cast<std::size_t>(std::stoul(argv[3])) : 1000;
+std::size_t num_samples =
+    (argc >= 3) ? static_cast<std::size_t>(std::stoul(argv[2])) : 1000;
 
     if (num_samples == 0) {
         std::cerr << "num_samples debe ser mayor que 0.\n";

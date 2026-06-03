@@ -113,7 +113,6 @@ static Metrics run_test(
     return m;
   }
 
-  const double scale_factor = 1024.0;
   const auto t_total_0 = std::chrono::high_resolution_clock::now();
 
   for (int i = 0; i < tc.N; ++i) {

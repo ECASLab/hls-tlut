@@ -22,9 +22,13 @@ run: $(TB)
 	@echo "=========================================================="
 	@echo "  Iniciando Testbench: $(TB)"
 	@echo "  Bitstream: $(XCLBIN)"
-	@echo "  Muestras (Samples): $(SAMPLES)"
 	@echo "=========================================================="
-	./$(TB) $(XCLBIN) $(VERSION) $(SAMPLES)
+
+ifeq ($(TB),hw_tb)
+	./$(TB) $(XCLBIN) $(SAMPLES)
+else
+	./$(TB) $(XCLBIN)
+endif
 
 clean:
 	$(RM) $(EXECUTABLES) hw_results_*.txt hw_interaction_*.log
