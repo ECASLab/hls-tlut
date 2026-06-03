@@ -20,7 +20,7 @@
 #include <type_traits>
 
 #include "examples/common/kernels/arithmetic.hpp"
-#include "tluttanh.hpp"  // NOLINT
+//#include "tluttanh.hpp"  // NOLINT
 #include "tlut.hpp"  // NOLINT
 
 /**
