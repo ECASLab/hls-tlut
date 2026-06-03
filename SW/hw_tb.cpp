@@ -125,7 +125,7 @@ std::size_t num_samples =
         return EXIT_FAILURE;
     }
 
-    const std::string filename_res = "hw_result_" + std::to_string(num_samples) + ".txt";
+    const std::string filename_res = "hw_results_" + std::to_string(num_samples) + ".txt";
     const std::string filename_log = "hw_interaction_" + std::to_string(num_samples) + ".log";
 
     std::ofstream res_file(filename_res);
