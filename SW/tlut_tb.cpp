@@ -9,8 +9,7 @@
 #include <numeric>
 #include <algorithm>
 
-// Inclusión de tu API en lugar de las librerías nativas de XRT/CAMTA
-#include "api/tlut_api.hpp"
+#include "api/tlut_api.cpp"
 
 // ============================================================================
 // ESTRUCTURAS ADAPTADAS A T-LUT

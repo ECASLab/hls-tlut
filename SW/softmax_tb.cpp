@@ -7,7 +7,7 @@
 #include <cmath>
 #include <algorithm>
 
-#include "tlut_api.hpp"
+#include "api/tlut_api.cpp"
 
 struct SoftmaxTestCase {
   std::string name;
