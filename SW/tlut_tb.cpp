@@ -1,13 +1,17 @@
-#include <cstdint>
-#include <string>
-#include <iostream>
-#include <iomanip>
-#include <vector>
+// tlut_tb.cpp
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <functional>
+#include <iomanip>
+#include <iostream>
+#include <locale>
 #include <numeric>
-#include <algorithm>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "api/tlut_api.cpp"
 
@@ -17,7 +21,7 @@
 
 struct TestCase {
   std::string name;
-  std::string tlut_folder; // Reemplaza a RegionPoly y L (Ej: "gelu", "exp")
+  std::string tlut_folder;
   int N;
   double xmin;
   double xmax;
@@ -25,10 +29,10 @@ struct TestCase {
 };
 
 struct Metrics {
-  double cfg_write_ms = 0.0; // Tiempo en cargar las tablas (accel.load)
-  double h2d_ms = 0.0;       // (Asimilado en execute_process)
-  double kernel_ms = 0.0;    // Tiempo puro de procesamiento PCIe + HW
-  double d2h_ms = 0.0;       // (Asimilado en execute_process)
+  double cfg_write_ms = 0.0;
+  double h2d_ms = 0.0;
+  double kernel_ms = 0.0;
+  double d2h_ms = 0.0;
   double total_ms = 0.0;
 
   double mse = 0.0;
@@ -59,11 +63,12 @@ struct SummaryRow {
 };
 
 // ============================================================================
-// FUNCIONES DE REFERENCIA MATEMÁTICA (Mantenidas del original)
+// FUNCIONES DE REFERENCIA MATEMÁTICA
 // ============================================================================
 
 static double ref_gelu(double x) {
-  const double c = std::sqrt(2.0 / M_PI);
+  const double pi = std::acos(-1.0);
+  const double c = std::sqrt(2.0 / pi);
   return 0.5 * x * (1.0 + std::tanh(c * (x + 0.044715 * x * x * x)));
 }
 
@@ -83,8 +88,16 @@ static double ref_exp_fn(double x) {
   return std::exp(x);
 }
 
+static inline std::int16_t q10_from_double(double x) {
+  return static_cast<std::int16_t>(std::lround(x * 1024.0));
+}
+
+static inline double q10_to_double(std::int16_t x) {
+  return static_cast<double>(x) / 1024.0;
+}
+
 // ============================================================================
-// MOTOR DE EJECUCIÓN (Motor t-LUT)
+// MOTOR DE EJECUCIÓN
 // ============================================================================
 
 static Metrics run_test(
@@ -95,59 +108,69 @@ static Metrics run_test(
   bool compute_error
 ) {
   Metrics m;
-  const double scale_factor = 1024.0; // Q6.10
 
-  auto t_total_0 = std::chrono::high_resolution_clock::now();
-
-  // FASE 1: Generar el barrido (Line-space)
-  for (int i = 0; i < tc.N; ++i) {
-    x_scalar[i] = tc.xmin + (tc.xmax - tc.xmin) * (double)i / (double)(tc.N - 1);
+  if (tc.N <= 0) {
+    return m;
   }
 
-  // FASE 2: Configuración (Carga de tablas)
-  auto t_cfg_0 = std::chrono::high_resolution_clock::now();
+  const double scale_factor = 1024.0;
+  const auto t_total_0 = std::chrono::high_resolution_clock::now();
+
+  for (int i = 0; i < tc.N; ++i) {
+    if (tc.N == 1) {
+      x_scalar[i] = tc.xmin;
+    } else {
+      x_scalar[i] = tc.xmin + (tc.xmax - tc.xmin) * static_cast<double>(i) / static_cast<double>(tc.N - 1);
+    }
+  }
+
+  // Carga de tablas TLUT
+  const auto t_cfg_0 = std::chrono::high_resolution_clock::now();
   accel.load(tc.tlut_folder);
-  auto t_cfg_1 = std::chrono::high_resolution_clock::now();
+  const auto t_cfg_1 = std::chrono::high_resolution_clock::now();
+  m.cfg_write_ms = std::chrono::duration<double, std::milli>(t_cfg_1 - t_cfg_0).count();
 
-  // FASE 3: Empaquetar y transferir a punto fijo
-  uint16_t* in_map = accel.get_in_map();
+  // Escritura host -> buffer mapeado
+  std::int16_t* in_map = accel.get_in_map();
   for (int i = 0; i < tc.N; ++i) {
-    int16_t fixed_val = static_cast<int16_t>(x_scalar[i] * scale_factor);
-    in_map[i] = static_cast<uint16_t>(fixed_val);
+    in_map[i] = q10_from_double(x_scalar[i]);
   }
 
-  // FASE 4: Ejecución en Hardware (Incluye Transferencia PCIe)
-  auto t_k_0 = std::chrono::high_resolution_clock::now();
-  accel.execute_process(tc.N);
-  auto t_k_1 = std::chrono::high_resolution_clock::now();
+  // Ejecución en HW + transferencia interna del flujo
+  const auto t_k_0 = std::chrono::high_resolution_clock::now();
+  accel.execute_process(static_cast<std::size_t>(tc.N));
+  const auto t_k_1 = std::chrono::high_resolution_clock::now();
+  m.kernel_ms = std::chrono::duration<double, std::milli>(t_k_1 - t_k_0).count();
 
-  // FASE 5: Leer resultados de hardware
-  const uint16_t* out_map = accel.get_out_map();
+  // Salida HW -> host
+  const std::int16_t* out_map = accel.get_out_map();
   for (int i = 0; i < tc.N; ++i) {
-    int16_t out_fixed = static_cast<int16_t>(out_map[i]);
-    y_scalar[i] = static_cast<double>(out_fixed) / scale_factor;
+    y_scalar[i] = q10_to_double(out_map[i]);
   }
 
-  // FASE 6: Calcular Errores
+  // Zero-copy: no hay tiempos separados reales para H2D y D2H en esta API.
+  m.h2d_ms = 0.0;
+  m.d2h_ms = 0.0;
+
   if (compute_error) {
     double mse = 0.0;
     double mae = 0.0;
     double max_abs_err = 0.0;
 
     for (int i = 0; i < tc.N; ++i) {
-      double x = x_scalar[i];
-      double y_hw = y_scalar[i];
-      double y_ref = tc.ref_fn(x);
-      double err = y_hw - y_ref;
-      double abs_err = std::abs(err);
+      const double x = x_scalar[i];
+      const double y_hw = y_scalar[i];
+      const double y_ref = tc.ref_fn(x);
+      const double err = y_hw - y_ref;
+      const double abs_err = std::abs(err);
 
       mse += err * err;
       mae += abs_err;
-      if (abs_err > max_abs_err) max_abs_err = abs_err;
+      max_abs_err = std::max(max_abs_err, abs_err);
     }
 
-    mse /= (double)tc.N;
-    mae /= (double)tc.N;
+    mse /= static_cast<double>(tc.N);
+    mae /= static_cast<double>(tc.N);
 
     m.mse = mse;
     m.rmse = std::sqrt(mse);
@@ -155,24 +178,19 @@ static Metrics run_test(
     m.max_abs_err = max_abs_err;
   }
 
-  auto t_total_1 = std::chrono::high_resolution_clock::now();
+  const auto t_total_1 = std::chrono::high_resolution_clock::now();
 
-  // Registrar Tiempos
-  m.cfg_write_ms = std::chrono::duration<double, std::milli>(t_cfg_1 - t_cfg_0).count();
-  // Al usar Zero-Copy en execute_process(), la métrica de Kernel abarca todo el viaje (H2D+Run+D2H)
-  m.kernel_ms = std::chrono::duration<double, std::milli>(t_k_1 - t_k_0).count(); 
   m.total_ms = std::chrono::duration<double, std::milli>(t_total_1 - t_total_0).count();
-
   return m;
 }
 
 static double avg(const std::vector<double>& v) {
   if (v.empty()) return 0.0;
-  return std::accumulate(v.begin(), v.end(), 0.0) / (double)v.size();
+  return std::accumulate(v.begin(), v.end(), 0.0) / static_cast<double>(v.size());
 }
 
 // ============================================================================
-// MAIN SCRIPT
+// MAIN
 // ============================================================================
 
 int main(int argc, char** argv) {
@@ -197,24 +215,23 @@ int main(int argc, char** argv) {
     }
 
     const bool do_functional = (mode == "functional" || mode == "all");
-    const bool do_timing     = (mode == "timing" || mode == "all");
+    const bool do_timing = (mode == "timing" || mode == "all");
 
     const int maxN = 10000;
     const int warmup_runs = 1;
     const int measured_runs = 5;
 
-    // Equivalencia de Casos de Prueba (Se mapean a la carpeta TLUT)
     std::vector<TestCase> tests = {
       { "gelu_N10000", "gelu", 10000, -8.0, 8.0, ref_gelu },
       { "tanh_N4096",  "tanh",  4096, -4.0, 4.0, ref_tanh },
       { "sigmoid_N4096", "sigmoid", 4096, -8.0, 8.0, ref_sigmoid },
       { "swish_N4096", "swish", 4096, -8.0, 8.0, ref_swish },
-      
+
       { "gelu_N1024", "gelu", 1024, -8.0, 8.0, ref_gelu },
       { "tanh_N1024", "tanh", 1024, -4.0, 4.0, ref_tanh },
       { "sigmoid_N1024", "sigmoid", 1024, -8.0, 8.0, ref_sigmoid },
       { "swish_N1024", "swish", 1024, -8.0, 8.0, ref_swish },
-      
+
       { "exp_RangoLargo_N1024", "exp", 1024, -4.0, 4.0, ref_exp_fn },
       { "exp_RangoLargo_N4096", "exp", 4096, -4.0, 4.0, ref_exp_fn },
       { "exp_Softmax_N1024", "exp", 1024, -1.0, 1.0, ref_exp_fn },
@@ -222,14 +239,16 @@ int main(int argc, char** argv) {
     };
 
     auto tprog0 = std::chrono::high_resolution_clock::now();
-    
-    // Configuración Inicial e Instanciación de tu API
+
     TlutHardwareConfig hw_cfg;
     hw_cfg.max_samples = maxN;
+    hw_cfg.enable_profiling = true;
+
     TlutAccelerator accel(binaryFile, hw_cfg, 0);
 
     auto tprog1 = std::chrono::high_resolution_clock::now();
-    double xclbin_program_time_ms = std::chrono::duration<double, std::milli>(tprog1 - tprog0).count();
+    const double xclbin_program_time_ms =
+      std::chrono::duration<double, std::milli>(tprog1 - tprog0).count();
 
     std::vector<double> x_scalar(maxN);
     std::vector<double> y_scalar(maxN);
@@ -242,7 +261,6 @@ int main(int argc, char** argv) {
     std::cout << "measured_runs=" << measured_runs << "\n\n";
 
     for (const auto& tc : tests) {
-      // Warmups
       for (int i = 0; i < warmup_runs; ++i) {
         (void)run_test(accel, x_scalar, y_scalar, tc, do_functional);
       }
@@ -281,17 +299,14 @@ int main(int argc, char** argv) {
         row.avg_total_ms = avg(total_list);
 
         row.throughput_samples_per_sec =
-          (row.avg_kernel_ms > 0.0) ? ((double)tc.N / (row.avg_kernel_ms * 1e-3)) : 0.0;
+          (row.avg_kernel_ms > 0.0) ? (static_cast<double>(tc.N) / (row.avg_kernel_ms * 1e-3)) : 0.0;
 
         row.cfg_over_kernel_pct =
           (row.avg_kernel_ms > 0.0) ? (100.0 * row.avg_cfg_write_ms / row.avg_kernel_ms) : 0.0;
 
         row.avg_kernel_us = row.avg_kernel_ms * 1000.0;
-        row.ns_per_sample =
-          (row.N > 0) ? (row.avg_kernel_ms * 1e6 / (double)row.N) : 0.0;
-
-        row.cycles_at_250MHz =
-          row.avg_kernel_ms * 1e-3 * 250e6; // Asume 250 MHz como en el original
+        row.ns_per_sample = (row.N > 0) ? (row.avg_kernel_ms * 1e6 / static_cast<double>(row.N)) : 0.0;
+        row.cycles_at_250MHz = row.avg_kernel_ms * 1e-3 * 250e6;
       }
 
       if (do_functional) {
@@ -303,7 +318,6 @@ int main(int argc, char** argv) {
 
       summary.push_back(row);
 
-      // Impresión en tiempo real (Idéntica al original)
       std::cout << "========================================\n";
       std::cout << "test_name=" << tc.name << "\n";
       std::cout << "N=" << tc.N << " xmin=" << tc.xmin << " xmax=" << tc.xmax << "\n";
@@ -328,17 +342,13 @@ int main(int argc, char** argv) {
       std::cout << "\n";
     }
 
-    // ========================================================================
-    // TABLA DE RESUMEN FINAL (Estructura Intacta)
-    // ========================================================================
     std::cout << "========================================\n";
     std::cout << "FINAL_SUMMARY\n";
 
     if (do_timing) {
-
-      const int W_FUNC   = 30;
-      const int W_INT    = 8;
-      const int W_FLOAT  = 16;
+      const int W_FUNC = 30;
+      const int W_INT = 8;
+      const int W_FLOAT = 16;
       const int W_FLOATL = 20;
 
       std::cout << std::left
@@ -383,9 +393,9 @@ int main(int argc, char** argv) {
         std::cout << "\n";
       }
     }
+
     return 0;
-  }
-  catch (const std::exception& e) {
+  } catch (const std::exception& e) {
     std::cerr << "ERROR: " << e.what() << "\n";
     return 1;
   }

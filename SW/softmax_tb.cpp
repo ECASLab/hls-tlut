@@ -1,11 +1,12 @@
-#include <cstdint>
-#include <string>
-#include <iostream>
-#include <iomanip>
-#include <vector>
+// softmax_tb.cpp
+#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <algorithm>
+#include <cstdint>
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <vector>
 
 #include "api/tlut_api.cpp"
 
@@ -31,8 +32,20 @@ struct SoftmaxMetrics {
   double max_abs_err_softmax = 0.0;
 };
 
+static inline std::int16_t q10_from_double(double x) {
+  return static_cast<std::int16_t>(std::lround(x * 1024.0));
+}
+
+static inline double q10_to_double(std::int16_t x) {
+  return static_cast<double>(x) / 1024.0;
+}
+
 static SoftmaxMetrics run_softmax_test(TlutAccelerator& accel, const SoftmaxTestCase& tc) {
   SoftmaxMetrics m;
+
+  if (tc.N <= 0) {
+    return m;
+  }
 
   std::vector<double> x(tc.N);
   std::vector<double> z(tc.N);
@@ -43,20 +56,20 @@ static SoftmaxMetrics run_softmax_test(TlutAccelerator& accel, const SoftmaxTest
   std::vector<double> tlut_exp_scalar(tc.N);
   std::vector<double> tlut_softmax(tc.N);
 
-  // Generar datos de prueba
   for (int i = 0; i < tc.N; ++i) {
-    x[i] = tc.xmin + (tc.xmax - tc.xmin) * (double)i / (double)(tc.N - 1);
+    if (tc.N == 1) {
+      x[i] = tc.xmin;
+    } else {
+      x[i] = tc.xmin + (tc.xmax - tc.xmin) * static_cast<double>(i) / static_cast<double>(tc.N - 1);
+    }
   }
 
-  // ---------------------------------
-  // Host softmax completo (Software Puro)
-  // ---------------------------------
+  // Softmax de referencia en software
   auto t_host0 = std::chrono::high_resolution_clock::now();
 
   const double xmax = *std::max_element(x.begin(), x.end());
-
   for (int i = 0; i < tc.N; ++i) {
-    z[i] = x[i] - xmax; // Resta del Safe Softmax
+    z[i] = x[i] - xmax;
   }
 
   double sum_exp_ref = 0.0;
@@ -72,32 +85,22 @@ static SoftmaxMetrics run_softmax_test(TlutAccelerator& accel, const SoftmaxTest
   auto t_host1 = std::chrono::high_resolution_clock::now();
   m.host_softmax_ms = std::chrono::duration<double, std::milli>(t_host1 - t_host0).count();
 
-  // ---------------------------------
-  // Acelerador TLUT para exp(z)
-  // ---------------------------------
-  uint16_t* in_map = accel.get_in_map();
-  
-  // Convertir double a Q6.10 (Factor = 1024.0)
+  // TLUT exp(z)
+  std::int16_t* in_map = accel.get_in_map();
   for (int i = 0; i < tc.N; ++i) {
-    int16_t fixed_val = static_cast<int16_t>(z[i] * 1024.0);
-    in_map[i] = static_cast<uint16_t>(fixed_val);
+    in_map[i] = q10_from_double(z[i]);
   }
 
   auto t_tlut0 = std::chrono::high_resolution_clock::now();
-  
-  // Ejecutar HW (Transferencias PCIe + Computo)
-  accel.execute_process(tc.N);
-  
+  accel.execute_process(static_cast<std::size_t>(tc.N));
   auto t_tlut1 = std::chrono::high_resolution_clock::now();
   m.tlut_process_ms = std::chrono::duration<double, std::milli>(t_tlut1 - t_tlut0).count();
 
-  const uint16_t* out_map = accel.get_out_map();
+  const std::int16_t* out_map = accel.get_out_map();
 
-  // Recuperar resultados y convertir Q6.10 a double
   double sum_exp_hw = 0.0;
   for (int i = 0; i < tc.N; ++i) {
-    int16_t fixed_out = static_cast<int16_t>(out_map[i]);
-    tlut_exp_scalar[i] = static_cast<double>(fixed_out) / 1024.0;
+    tlut_exp_scalar[i] = q10_to_double(out_map[i]);
     sum_exp_hw += tlut_exp_scalar[i];
   }
 
@@ -105,51 +108,51 @@ static SoftmaxMetrics run_softmax_test(TlutAccelerator& accel, const SoftmaxTest
     tlut_softmax[i] = tlut_exp_scalar[i] / sum_exp_hw;
   }
 
-  // ---------------------------------
   // Error de exp
-  // ---------------------------------
-  double mse_exp = 0.0;
-  double mae_exp = 0.0;
-  double maxerr_exp = 0.0;
+  {
+    double mse = 0.0;
+    double mae = 0.0;
+    double maxerr = 0.0;
 
-  for (int i = 0; i < tc.N; ++i) {
-    double err = tlut_exp_scalar[i] - exp_ref[i];
-    double abse = std::abs(err);
-    mse_exp += err * err;
-    mae_exp += abse;
-    if (abse > maxerr_exp) maxerr_exp = abse;
+    for (int i = 0; i < tc.N; ++i) {
+      const double err = tlut_exp_scalar[i] - exp_ref[i];
+      const double abse = std::abs(err);
+      mse += err * err;
+      mae += abse;
+      maxerr = std::max(maxerr, abse);
+    }
+
+    mse /= static_cast<double>(tc.N);
+    mae /= static_cast<double>(tc.N);
+
+    m.mse_exp = mse;
+    m.rmse_exp = std::sqrt(mse);
+    m.mae_exp = mae;
+    m.max_abs_err_exp = maxerr;
   }
 
-  mse_exp /= (double)tc.N;
-  mae_exp /= (double)tc.N;
-
-  m.mse_exp = mse_exp;
-  m.rmse_exp = std::sqrt(mse_exp);
-  m.mae_exp = mae_exp;
-  m.max_abs_err_exp = maxerr_exp;
-
-  // ---------------------------------
   // Error de softmax
-  // ---------------------------------
-  double mse_sm = 0.0;
-  double mae_sm = 0.0;
-  double maxerr_sm = 0.0;
+  {
+    double mse = 0.0;
+    double mae = 0.0;
+    double maxerr = 0.0;
 
-  for (int i = 0; i < tc.N; ++i) {
-    double err = tlut_softmax[i] - softmax_ref[i];
-    double abse = std::abs(err);
-    mse_sm += err * err;
-    mae_sm += abse;
-    if (abse > maxerr_sm) maxerr_sm = abse;
+    for (int i = 0; i < tc.N; ++i) {
+      const double err = tlut_softmax[i] - softmax_ref[i];
+      const double abse = std::abs(err);
+      mse += err * err;
+      mae += abse;
+      maxerr = std::max(maxerr, abse);
+    }
+
+    mse /= static_cast<double>(tc.N);
+    mae /= static_cast<double>(tc.N);
+
+    m.mse_softmax = mse;
+    m.rmse_softmax = std::sqrt(mse);
+    m.mae_softmax = mae;
+    m.max_abs_err_softmax = maxerr;
   }
-
-  mse_sm /= (double)tc.N;
-  mae_sm /= (double)tc.N;
-
-  m.mse_softmax = mse_sm;
-  m.rmse_softmax = std::sqrt(mse_sm);
-  m.mae_softmax = mae_sm;
-  m.max_abs_err_softmax = maxerr_sm;
 
   return m;
 }
@@ -157,28 +160,28 @@ static SoftmaxMetrics run_softmax_test(TlutAccelerator& accel, const SoftmaxTest
 int main(int argc, char** argv) {
   try {
     std::string binaryFile = "../HW/package.hw/kernels.xclbin";
-
     if (argc > 1) {
       binaryFile = argv[1];
     }
 
-    // Caso de prueba para t-LUT
-    SoftmaxTestCase tc = {
+    SoftmaxTestCase tc{
       "softmax_via_tlut_exp",
-      128,          // N: Cantidad de números
-      -10.0, 10.0   // Rango de prueba (Puedes ajustarlo)
+      128,
+      -10.0,
+      10.0
     };
 
-    auto tprog0 = std::chrono::high_resolution_clock::now();
-    
-    // Inicialización Limpia usando tu API
-    TlutAccelerator accel(binaryFile);
-    accel.load("exp"); // Cargamos la tabla exponencial
-    
-    auto tprog1 = std::chrono::high_resolution_clock::now();
-    double init_time_ms = std::chrono::duration<double, std::milli>(tprog1 - tprog0).count();
+    TlutHardwareConfig hw_cfg;
+    hw_cfg.enable_profiling = true;
+    hw_cfg.max_samples = std::max<std::size_t>(hw_cfg.max_samples, static_cast<std::size_t>(tc.N));
 
-    // Correr Testbench
+    auto tprog0 = std::chrono::high_resolution_clock::now();
+    TlutAccelerator accel(binaryFile, hw_cfg, 0);
+    accel.load("exp");
+    auto tprog1 = std::chrono::high_resolution_clock::now();
+
+    const double init_time_ms = std::chrono::duration<double, std::milli>(tprog1 - tprog0).count();
+
     SoftmaxMetrics m = run_softmax_test(accel, tc);
 
     std::cout << std::fixed << std::setprecision(9);
@@ -204,8 +207,7 @@ int main(int argc, char** argv) {
     std::cout << "max_abs_err_softmax = " << m.max_abs_err_softmax << "\n";
 
     return 0;
-  }
-  catch (const std::exception& e) {
+  } catch (const std::exception& e) {
     std::cerr << "ERROR: " << e.what() << "\n";
     return 1;
   }
