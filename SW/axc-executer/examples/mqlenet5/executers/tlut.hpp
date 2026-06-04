@@ -23,6 +23,9 @@
 #include <runtime.hpp>
 
 #include "../../../../api/tlut_api.hpp"
+#include <string>
+#include <iomanip>
+#include <fstream>
 
 // Singleton del acelerador para evitar recargas del xclbin en XRT.
 inline TlutAccelerator& get_tlut_accelerator() {
@@ -81,58 +84,80 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
 // Debug Exp
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
-    std::cout << "[INFO] Executing ExpTlut..." << std::endl;
+    // 1. Diagnóstico de Consola: Inicio de ejecución
+    std::cout << "\n=== [EXP TLUT CONSOLE DIAGNOSTIC] ===" << std::endl;
+    std::cout << "Processing size: " << size << std::endl;
 
     auto& accel = get_tlut_accelerator();
     auto& loaded = get_loaded_tlut();
 
     if (loaded != TlutFunction::EXP) {
-        std::cout << "[XRT] Loading EXP LUT into BRAM..." << std::endl;
         accel.load("exp");
         loaded = TlutFunction::EXP;
     }
 
-    std::ofstream log_file("xrt_debug_dump.log", std::ios::app);
-    if (!log_file.is_open()) {
-        std::cerr << "[ERROR] Could not open log file for debugging!" << std::endl;
-    }
-
     auto* in_map = accel.get_in_map();
 
+    // Abrir el archivo .txt para guardar el volcado detallado de datos (evita saturar consola)
+    std::ofstream log_file("fpga_softmax_detailed_log.txt", std::ios::out);
+    if (!log_file.is_open()) {
+        std::cout << "[ERROR] No se pudo crear el archivo de log detallado." << std::endl;
+    } else {
+        log_file << "======================================================================\n";
+        log_file << "DETAILED FPGA XRT DEBUG LOG - SAFE SOFTMAX LUT LEVEL\n";
+        log_file << "LUT Bounds Expected: Min = -8.0, Max = 1.0\n";
+        log_file << "======================================================================\n\n";
+    }
+
+    // Variables de rastreo críticas para detectar fallas en LeNet5 / MobileNetV2
+    float max_val_float = -999999.0f;
+    float min_val_float = 999999.0f;
+    int out_of_bounds_count = 0;
+
     if (log_file.is_open()) {
-        log_file << "\n========================================================================\n";
-        log_file << "[DEBUG 1] HOST -> FPGA (Input Data)\n";
+        log_file << "[STAGE 1] HOST -> FPGA TRANSFER (INPUT DATA)\n";
         log_file << std::left << std::setw(8) << "Index" 
-                  << std::setw(15) << "Raw ap_fixed" 
-                  << std::setw(15) << "Float Real" 
-                  << std::setw(15) << "FPGA Q6.10" 
-                  << "FPGA Float" << "\n";
+                 << std::setw(15) << "Raw ap_fixed" 
+                 << std::setw(15) << "Float Real" 
+                 << std::setw(15) << "FPGA Q6.10" 
+                 << "FPGA Float" << "\n";
         log_file << std::string(70, '-') << "\n";
     }
 
+    // Extracción de bits crudos y análisis de límites
     for (int i = 0; i < size; ++i) {
         in_map[i] = static_cast<std::int16_t>(input_data[i].V);
         
+        float current_float = static_cast<float>(input_data[i]);
+        if (current_float > max_val_float) max_val_float = current_float;
+        if (current_float < min_val_float) min_val_float = current_float;
+
+        // Verificar si se sale del rango de la LUT precalculada [-8.0, 1.0]
+        if (current_float < -8.0f || current_float > 1.0f) {
+            out_of_bounds_count++;
+        }
+
         if (log_file.is_open()) {
             log_file << std::left << std::setw(8) << i 
-                      << std::setw(15) << (int)input_data[i].V 
-                      << std::setw(15) << static_cast<float>(input_data[i]) 
-                      << std::setw(15) << in_map[i] 
-                      << (in_map[i] / 1024.0f) << "\n";
+                     << std::setw(15) << (int)input_data[i].V 
+                     << std::setw(15) << current_float 
+                     << std::setw(15) << in_map[i] 
+                     << (in_map[i] / 1024.0f) << "\n";
         }
     }
 
+    // Ejecución HW
     accel.execute_process(size);
 
     const auto* out_map = accel.get_out_map();
 
     if (log_file.is_open()) {
-        log_file << "\n[DEBUG 2] FPGA -> HOST (Output Data)\n";
+        log_file << "\n[STAGE 2] FPGA -> HOST TRANSFER (LUT OUTPUT DATA)\n";
         log_file << std::left << std::setw(8) << "Index" 
-                  << std::setw(15) << "FPGA Q6.10" 
-                  << std::setw(15) << "FPGA Float" 
-                  << std::setw(15) << "Raw ap_fixed" 
-                  << "Float Real" << "\n";
+                 << std::setw(15) << "FPGA Q6.10" 
+                 << std::setw(15) << "FPGA Float" 
+                 << std::setw(15) << "Raw ap_fixed" 
+                 << "Float Real" << "\n";
         log_file << std::string(70, '-') << "\n";
     }
 
@@ -141,50 +166,58 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
         
         if (log_file.is_open()) {
             log_file << std::left << std::setw(8) << i 
-                      << std::setw(15) << out_map[i] 
-                      << std::setw(15) << (out_map[i] / 1024.0f) 
-                      << std::setw(15) << (int)output_data[i].V 
-                      << static_cast<float>(output_data[i]) << "\n";
+                     << std::setw(15) << out_map[i] 
+                     << std::setw(15) << (out_map[i] / 1024.0f) 
+                     << std::setw(15) << (int)output_data[i].V 
+                     << static_cast<float>(output_data[i]) << "\n";
         }
     }
 
+    // Mitigación de overflow para Softmax
     ap_fixed<16, 10> acc = 0.0001;
-
     for (int i = 0; i < size; ++i) {
         acc += output_data[i];
     }
 
     ap_fixed<24, 10> accfx = ap_fixed<24, 10>{1.0} / ap_fixed<24, 10>{acc};
 
-    std::cout << "[INFO] Softmax Mitigation - Acc: " << static_cast<float>(acc) 
-              << " | Inv Accfx: " << static_cast<float>(accfx) << std::endl;
-
     if (log_file.is_open()) {
-        log_file << "\n[DEBUG 3] Softmax Mitigation \n";
+        log_file << "\n[STAGE 3] SOFTMAX NORMALIZATION FACTORS\n";
         log_file << "Accumulator (Float): " << static_cast<float>(acc) << "\n";
-        log_file << "Inverse accfx (Float): " << static_cast<float>(accfx) << "\n";
+        log_file << "Inverse Factor accfx (Float): " << static_cast<float>(accfx) << "\n\n";
 
-        log_file << "\n[DEBUG 4] Final Softmax Result\n";
-        log_file << std::left << std::setw(8) << "Index" 
-                  << "Prob Final (Float)\n";
-        log_file << std::string(30, '-') << "\n";
+        log_file << "[STAGE 4] FINAL PROBABILITIES\n";
+        log_file << std::left << std::setw(8) << "Index" << "Prob (Float)\n";
+        log_file << std::string(25, '-') << "\n";
     }
 
     for (int i = 0; i < size; ++i) {
         output_data[i] = output_data[i] * accfx;
-        
         if (log_file.is_open()) {
             log_file << std::left << std::setw(8) << i 
-                      << static_cast<float>(output_data[i]) << "\n";
+                     << static_cast<float>(output_data[i]) << "\n";
         }
     }
 
+    // Cerrar archivo
     if (log_file.is_open()) {
-        log_file << "========================================================================\n\n";
         log_file.close();
     }
+
+    // 2. IMPRESIONES QUIRÚRGICAS EN CONSOLA (Métricas críticas de decisión)
+    std::cout << ">> [CRITICAL] Input Max Value (Float): " << max_val_float << " (Raw .V: " << (max_val_float * 1024.0f) << ")" << std::endl;
+    std::cout << ">> [CRITICAL] Input Min Value (Float): " << min_val_float << std::endl;
     
-    std::cout << "[INFO] ExpTlut completed successfully." << std::endl;
+    if (out_of_bounds_count > 0) {
+        std::cout << ">> [WARNING] " << out_of_bounds_count << " elements are OUT side the LUT range [-8, 1]!" << std::endl;
+        std::cout << "   Ensure Safe Softmax subtracts the maximum value BEFORE passing data to ExpTlut." << std::endl;
+    } else {
+        std::cout << ">> [OK] All inputs are strictly inside the LUT limits [-8, 1]." << std::endl;
+    }
+
+    std::cout << ">> [CRITICAL] Softmax Sum Accumulator: " << static_cast<float>(acc) << std::endl;
+    std::cout << ">> [CRITICAL] Softmax Inverse Scale Factor (accfx): " << static_cast<float>(accfx) << std::endl;
+    std::cout << ">> Detailed log matrix successfully exported to: 'fpga_softmax_detailed_log.txt'\n" << std::endl;
 }
 
 /*
