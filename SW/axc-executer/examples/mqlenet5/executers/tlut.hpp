@@ -81,56 +81,71 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
 // Debug Exp
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
-    std::cout << "Using ExpTlut" << std::endl;
+    std::cout << "[INFO] Executing ExpTlut..." << std::endl;
 
     auto& accel = get_tlut_accelerator();
     auto& loaded = get_loaded_tlut();
 
     if (loaded != TlutFunction::EXP) {
+        std::cout << "[XRT] Loading EXP LUT into BRAM..." << std::endl;
         accel.load("exp");
         loaded = TlutFunction::EXP;
     }
 
+    std::ofstream log_file("xrt_debug_dump.log", std::ios::app);
+    if (!log_file.is_open()) {
+        std::cerr << "[ERROR] Could not open log file for debugging!" << std::endl;
+    }
+
     auto* in_map = accel.get_in_map();
 
-    std::cout << "\n[DEBUG 1] HOST -> FPGA (Input Data)\n";
-    std::cout << std::left << std::setw(8) << "Index" 
-              << std::setw(15) << "Raw ap_fixed" 
-              << std::setw(15) << "Float Real" 
-              << std::setw(15) << "FPGA Q6.10" 
-              << "FPGA Float" << "\n";
-    std::cout << std::string(70, '-') << "\n";
+    if (log_file.is_open()) {
+        log_file << "\n========================================================================\n";
+        log_file << "[DEBUG 1] HOST -> FPGA (Input Data)\n";
+        log_file << std::left << std::setw(8) << "Index" 
+                  << std::setw(15) << "Raw ap_fixed" 
+                  << std::setw(15) << "Float Real" 
+                  << std::setw(15) << "FPGA Q6.10" 
+                  << "FPGA Float" << "\n";
+        log_file << std::string(70, '-') << "\n";
+    }
 
     for (int i = 0; i < size; ++i) {
         in_map[i] = static_cast<std::int16_t>(input_data[i].V);
         
-        std::cout << std::left << std::setw(8) << i 
-                  << std::setw(15) << (int)input_data[i].V 
-                  << std::setw(15) << static_cast<float>(input_data[i]) 
-                  << std::setw(15) << in_map[i] 
-                  << (in_map[i] / 1024.0f) << "\n";
+        if (log_file.is_open()) {
+            log_file << std::left << std::setw(8) << i 
+                      << std::setw(15) << (int)input_data[i].V 
+                      << std::setw(15) << static_cast<float>(input_data[i]) 
+                      << std::setw(15) << in_map[i] 
+                      << (in_map[i] / 1024.0f) << "\n";
+        }
     }
 
     accel.execute_process(size);
 
     const auto* out_map = accel.get_out_map();
 
-    std::cout << "\n[DEBUG 2] FPGA -> HOST (Output Data)\n";
-    std::cout << std::left << std::setw(8) << "Index" 
-              << std::setw(15) << "FPGA Q6.10" 
-              << std::setw(15) << "FPGA Float" 
-              << std::setw(15) << "Raw ap_fixed" 
-              << "Float Real" << "\n";
-    std::cout << std::string(70, '-') << "\n";
+    if (log_file.is_open()) {
+        log_file << "\n[DEBUG 2] FPGA -> HOST (Output Data)\n";
+        log_file << std::left << std::setw(8) << "Index" 
+                  << std::setw(15) << "FPGA Q6.10" 
+                  << std::setw(15) << "FPGA Float" 
+                  << std::setw(15) << "Raw ap_fixed" 
+                  << "Float Real" << "\n";
+        log_file << std::string(70, '-') << "\n";
+    }
 
     for (int i = 0; i < size; ++i) {
         output_data[i].V = out_map[i];
         
-        std::cout << std::left << std::setw(8) << i 
-                  << std::setw(15) << out_map[i] 
-                  << std::setw(15) << (out_map[i] / 1024.0f) 
-                  << std::setw(15) << (int)output_data[i].V 
-                  << static_cast<float>(output_data[i]) << "\n";
+        if (log_file.is_open()) {
+            log_file << std::left << std::setw(8) << i 
+                      << std::setw(15) << out_map[i] 
+                      << std::setw(15) << (out_map[i] / 1024.0f) 
+                      << std::setw(15) << (int)output_data[i].V 
+                      << static_cast<float>(output_data[i]) << "\n";
+        }
     }
 
     ap_fixed<16, 10> acc = 0.0001;
@@ -141,20 +156,35 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
 
     ap_fixed<24, 10> accfx = ap_fixed<24, 10>{1.0} / ap_fixed<24, 10>{acc};
 
-    std::cout << "\n[DEBUG 3] Softmax Mitigation \n";
-    std::cout << "Accumulator (Float): " << static_cast<float>(acc) << "\n";
-    std::cout << "Inverse accfx (Float): " << static_cast<float>(accfx) << "\n";
+    std::cout << "[INFO] Softmax Mitigation - Acc: " << static_cast<float>(acc) 
+              << " | Inv Accfx: " << static_cast<float>(accfx) << std::endl;
 
-    std::cout << "\n[DEBUG 4] Final Softmax Result\n";
-    std::cout << std::left << std::setw(8) << "Index" 
-              << "Prob Final (Float)\n";
-    std::cout << std::string(30, '-') << "\n";
+    if (log_file.is_open()) {
+        log_file << "\n[DEBUG 3] Softmax Mitigation \n";
+        log_file << "Accumulator (Float): " << static_cast<float>(acc) << "\n";
+        log_file << "Inverse accfx (Float): " << static_cast<float>(accfx) << "\n";
+
+        log_file << "\n[DEBUG 4] Final Softmax Result\n";
+        log_file << std::left << std::setw(8) << "Index" 
+                  << "Prob Final (Float)\n";
+        log_file << std::string(30, '-') << "\n";
+    }
 
     for (int i = 0; i < size; ++i) {
         output_data[i] = output_data[i] * accfx;
-        std::cout << std::left << std::setw(8) << i 
-                  << static_cast<float>(output_data[i]) << "\n";
+        
+        if (log_file.is_open()) {
+            log_file << std::left << std::setw(8) << i 
+                      << static_cast<float>(output_data[i]) << "\n";
+        }
     }
+
+    if (log_file.is_open()) {
+        log_file << "========================================================================\n\n";
+        log_file.close();
+    }
+    
+    std::cout << "[INFO] ExpTlut completed successfully." << std::endl;
 }
 
 /*
