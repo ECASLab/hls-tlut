@@ -78,7 +78,86 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
         output_data[i].V = out_map[i];
     }
 }
+// Debug Exp
+template <typename T>
+static void ExpTlut(const T *input_data, T *output_data, const int size) {
+    std::cout << "Using ExpTlut" << std::endl;
 
+    auto& accel = get_tlut_accelerator();
+    auto& loaded = get_loaded_tlut();
+
+    if (loaded != TlutFunction::EXP) {
+        accel.load("exp");
+        loaded = TlutFunction::EXP;
+    }
+
+    auto* in_map = accel.get_in_map();
+
+    std::cout << "\n[DEBUG 1] HOST -> FPGA (Input Data)\n";
+    std::cout << std::left << std::setw(8) << "Index" 
+              << std::setw(15) << "Raw ap_fixed" 
+              << std::setw(15) << "Float Real" 
+              << std::setw(15) << "FPGA Q6.10" 
+              << "FPGA Float" << "\n";
+    std::cout << std::string(70, '-') << "\n";
+
+    for (int i = 0; i < size; ++i) {
+        in_map[i] = static_cast<std::int16_t>(input_data[i].V);
+        
+        std::cout << std::left << std::setw(8) << i 
+                  << std::setw(15) << (int)input_data[i].V 
+                  << std::setw(15) << static_cast<float>(input_data[i]) 
+                  << std::setw(15) << in_map[i] 
+                  << (in_map[i] / 1024.0f) << "\n";
+    }
+
+    accel.execute_process(size);
+
+    const auto* out_map = accel.get_out_map();
+
+    std::cout << "\n[DEBUG 2] FPGA -> HOST (Output Data)\n";
+    std::cout << std::left << std::setw(8) << "Index" 
+              << std::setw(15) << "FPGA Q6.10" 
+              << std::setw(15) << "FPGA Float" 
+              << std::setw(15) << "Raw ap_fixed" 
+              << "Float Real" << "\n";
+    std::cout << std::string(70, '-') << "\n";
+
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];
+        
+        std::cout << std::left << std::setw(8) << i 
+                  << std::setw(15) << out_map[i] 
+                  << std::setw(15) << (out_map[i] / 1024.0f) 
+                  << std::setw(15) << (int)output_data[i].V 
+                  << static_cast<float>(output_data[i]) << "\n";
+    }
+
+    ap_fixed<16, 10> acc = 0.0001;
+
+    for (int i = 0; i < size; ++i) {
+        acc += output_data[i];
+    }
+
+    ap_fixed<24, 10> accfx = ap_fixed<24, 10>{1.0} / ap_fixed<24, 10>{acc};
+
+    std::cout << "\n[DEBUG 3] Softmax Mitigation \n";
+    std::cout << "Accumulator (Float): " << static_cast<float>(acc) << "\n";
+    std::cout << "Inverse accfx (Float): " << static_cast<float>(accfx) << "\n";
+
+    std::cout << "\n[DEBUG 4] Final Softmax Result\n";
+    std::cout << std::left << std::setw(8) << "Index" 
+              << "Prob Final (Float)\n";
+    std::cout << std::string(30, '-') << "\n";
+
+    for (int i = 0; i < size; ++i) {
+        output_data[i] = output_data[i] * accfx;
+        std::cout << std::left << std::setw(8) << i 
+                  << static_cast<float>(output_data[i]) << "\n";
+    }
+}
+
+/*
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using ExpTlut" << std::endl;
@@ -121,7 +200,7 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
         output_data[i] = output_data[i] * accfx;
     }
 }
-
+*/
 namespace Kernels {
 namespace Exact {
 /**
