@@ -37,13 +37,29 @@ inline TlutAccelerator& get_tlut_accelerator() {
     return accel;
 }
 
+// Estado de la TLUT actualmente cargada en BRAM.
+enum class TlutFunction {
+    NONE,
+    TANH,
+    EXP
+};
+
+inline TlutFunction& get_loaded_tlut() {
+    static TlutFunction current = TlutFunction::NONE;
+    return current;
+}
+
 template <typename T>
 static void TanhTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using TanhTlut" << std::endl;
+	
+	auto& accel = get_tlut_accelerator();
+	auto& loaded = get_loaded_tlut();
 
-    auto& accel = get_tlut_accelerator();
-
-    accel.load("tanh");  // Carga LUT TANH en BRAM
+    if (loaded != TlutFunction::TANH) {
+        accel.load("tanh");  // Carga LUT TANH en BRAM
+        loaded = TlutFunction::TANH;
+    }
 
     auto* in_map = accel.get_in_map();
 
@@ -68,8 +84,12 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using ExpTlut" << std::endl;
 
     auto& accel = get_tlut_accelerator();
+	auto& loaded = get_loaded_tlut();
 
-    accel.load("exp");  // Carga LUT EXP en BRAM
+    if (loaded != TlutFunction::EXP) {
+        accel.load("exp");  // Carga LUT EXP en BRAM
+        loaded = TlutFunction::EXP;
+    }
 
     auto* in_map = accel.get_in_map();
 
