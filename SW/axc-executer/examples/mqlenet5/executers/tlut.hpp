@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2023-2026
  * Authors:
- * Luis G. Leon Vega <luis.leon@ieee.org>
+ *        Luis G. Leon Vega <luis.leon@ieee.org>
  */
 
 #pragma once
@@ -24,50 +24,82 @@
 
 #include "../../../../api/tlut_api.hpp"
 
+// Singleton del acelerador para evitar recargas del xclbin en XRT.
 inline TlutAccelerator& get_tlut_accelerator() {
-    static TlutHardwareConfig hw_cfg;
-    hw_cfg.max_samples = 50000000;
+    static TlutHardwareConfig hw_cfg = [] {
+        TlutHardwareConfig cfg;
+        cfg.max_samples = 50000000;
+        return cfg;
+    }();
 
-    static TlutAccelerator accel("../../HW/package.hw.v2/kernels_v2.xclbin", hw_cfg);
+    static TlutAccelerator accel("../../HW/package.hw.v2/kernels_v2.xclbin", hw_cfg, 0);
+
     return accel;
 }
 
 template <typename T>
 static void TanhTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using TanhTlut" << std::endl;
-    
+
     auto& accel = get_tlut_accelerator();
-    accel.load("tanh");
-    
-    // Escritura (Host -> FPGA) moviendo los bits crudos sin conversión matemática
+
+    accel.load("tanh");  // Carga LUT TANH en BRAM
+
     auto* in_map = accel.get_in_map();
-    const auto* raw_input = reinterpret_cast<const std::int16_t*>(input_data);
-    std::copy(raw_input, raw_input + size, in_map);
-    
+
+    // Extracción de bits crudos: ap_fixed<16,6> -> Q6.10 (int16_t).
+    for (int i = 0; i < size; ++i) {
+        in_map[i] = static_cast<std::int16_t>(input_data[i].V);
+    }
+
+    // Ejecución HW.
     accel.execute_process(size);
-    
-    // Lectura (FPGA -> Host) devolviendo los bits crudos al tipo T original
+
     const auto* out_map = accel.get_out_map();
-    auto* raw_output = reinterpret_cast<std::int16_t*>(output_data);
-    std::copy(out_map, out_map + size, raw_output);
+
+    // Recuperación de bits crudos: Q6.10 (int16_t) -> ap_fixed<16,6>.
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];
+    }
 }
 
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using ExpTlut" << std::endl;
-    
+
     auto& accel = get_tlut_accelerator();
-    accel.load("exp");
-    
+
+    accel.load("exp");  // Carga LUT EXP en BRAM
+
     auto* in_map = accel.get_in_map();
-    const auto* raw_input = reinterpret_cast<const std::int16_t*>(input_data);
-    std::copy(raw_input, raw_input + size, in_map);
-    
+
+    // Extracción de bits crudos: ap_fixed<16,6> -> Q6.10 (int16_t).
+    for (int i = 0; i < size; ++i) {
+        in_map[i] = static_cast<std::int16_t>(input_data[i].V);
+    }
+
+    // Ejecución HW.
     accel.execute_process(size);
-    
+
     const auto* out_map = accel.get_out_map();
-    auto* raw_output = reinterpret_cast<std::int16_t*>(output_data);
-    std::copy(out_map, out_map + size, raw_output);
+
+    // Recuperación de bits crudos: Q6.10 (int16_t) -> ap_fixed<16,6>.
+    for (int i = 0; i < size; ++i) {
+        output_data[i].V = out_map[i];
+    }
+
+    // Mitigación de overflow para Softmax (original de Luis Leon).
+    ap_fixed<16, 10> acc = 0.0001;
+
+    for (int i = 0; i < size; ++i) {
+        acc += output_data[i];
+    }
+
+    ap_fixed<24, 10> accfx = ap_fixed<24, 10>{1.0} / ap_fixed<24, 10>{acc};
+
+    for (int i = 0; i < size; ++i) {
+        output_data[i] = output_data[i] * accfx;
+    }
 }
 
 namespace Kernels {
