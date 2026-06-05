@@ -42,14 +42,15 @@ struct TestInfo {
 void execute_test(TlutAccelerator& accel, const TestInfo& info, 
                   std::size_t num_samples, double x_min, double x_max) {
     
-    std::vector<double> x_vals(num_samples);
     std::vector<std::int16_t> in_q(num_samples);
+    std::vector<double> x_hosts(num_samples);
     
-    const double step = (num_samples > 1) ? (x_max - x_min) / static_cast<double>(num_samples - 1) : 0.0;
+    // Correct step calculation: range / samples (e.g., 20/100 = 0.2)
+    const double step = (num_samples > 0) ? (x_max - x_min) / static_cast<double>(num_samples) : 0.0;
     
     for (std::size_t i = 0; i < num_samples; ++i) {
-        x_vals[i] = x_min + static_cast<double>(i) * step;
-        in_q[i] = to_q10(x_vals[i]);
+        x_hosts[i] = x_min + static_cast<double>(i) * step;
+        in_q[i] = to_q10(x_hosts[i]);
     }
 
     // Load LUT and execute
@@ -66,8 +67,15 @@ void execute_test(TlutAccelerator& accel, const TestInfo& info,
         throw std::runtime_error("Could not open file: " + filename);
     }
 
-    out_file << std::fixed << std::setprecision(6);
-    out_file << "X_val,Y_hw,Y_ideal,Diff\n";
+    // Structured Header with 10 decimal places for Q6.10 precision
+    out_file << std::left << std::setw(8) << "Index" << " | "
+             << std::setw(18) << "X_Host" << " | "
+             << std::setw(18) << "X_HW (Q6.10)" << " | "
+             << std::setw(18) << "Y_HW" << " | "
+             << std::setw(18) << "Y_Ideal" << " | "
+             << std::setw(18) << "Diff" << "\n";
+    out_file << std::string(110, '-') << "\n";
+    out_file << std::fixed << std::setprecision(10);
 
     double mse = 0.0;
     double max_err = 0.0;
@@ -75,11 +83,17 @@ void execute_test(TlutAccelerator& accel, const TestInfo& info,
     const double TOLERANCE = 0.1;
 
     for (std::size_t i = 0; i < num_samples; ++i) {
-        double y_hw = from_q10(out_map[i]);
-        double y_ideal = info.golden(x_vals[i]);
+        double x_hw    = from_q10(in_q[i]);
+        double y_hw    = from_q10(out_map[i]);
+        double y_ideal = info.golden(x_hosts[i]);
         double diff = std::abs(y_hw - y_ideal);
 
-        out_file << x_vals[i] << "," << y_hw << "," << y_ideal << "," << diff << "\n";
+        out_file << std::left << std::setw(8) << i << " | "
+                 << std::setw(18) << x_hosts[i] << " | "
+                 << std::setw(18) << x_hw << " | "
+                 << std::setw(18) << y_hw << " | "
+                 << std::setw(18) << y_ideal << " | "
+                 << std::setw(18) << diff << "\n";
 
         mse += (diff * diff);
         if (diff > max_err) max_err = diff;
