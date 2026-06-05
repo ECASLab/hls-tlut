@@ -23,9 +23,6 @@
 #include <runtime.hpp>
 
 #include "../../../../api/tlut_api.hpp"
-#include <string>
-#include <iomanip>
-#include <fstream>
 
 // Singleton del acelerador para evitar recargas del xclbin en XRT.
 inline TlutAccelerator& get_tlut_accelerator() {
@@ -87,7 +84,7 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using ExpTlut" << std::endl;
 
     auto& accel = get_tlut_accelerator();
-	auto& loaded = get_loaded_tlut();
+    auto& loaded = get_loaded_tlut();
 
     if (loaded != TlutFunction::EXP) {
         accel.load("exp");  // Carga LUT EXP en BRAM
