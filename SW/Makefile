@@ -2,8 +2,10 @@ VERSION := v2
 
 TB ?= hw_tb
 SAMPLES ?= 1000
+X_MIN ?= -10
+X_MAX ?= 10
 
-EXECUTABLES := hw_tb softmax_tb tlut_tb
+EXECUTABLES := hw_tb softmax_tb tlut_tb host_tb
 
 CFLAGS := -I/opt/xilinx/xrt/include -Wall -std=c++17 -O0 -g -I. -I./hls-types/include
 LDFLAGS := -L/opt/xilinx/xrt/lib -pthread -lxrt_core -lxrt_coreutil
@@ -24,7 +26,9 @@ run: $(TB)
 	@echo "  Bitstream: $(XCLBIN)"
 	@echo "=========================================================="
 
-ifeq ($(TB),hw_tb)
+ifeq ($(TB),host_tb)
+	./$(TB) $(XCLBIN) $(SAMPLES) $(X_MIN) $(X_MAX)
+else ifeq ($(TB),hw_tb)
 	./$(TB) $(XCLBIN) $(SAMPLES)
 else
 	./$(TB) $(XCLBIN)
