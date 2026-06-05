@@ -81,91 +81,7 @@ static void TanhTlut(const T *input_data, T *output_data, const int size) {
         output_data[i].V = out_map[i];
     }
 }
-// Debug Exp
-template <typename T>
-static void ExpTlut(const T *input_data, T *output_data, const int size) {
-    auto& accel = get_tlut_accelerator();
-    auto& loaded = get_loaded_tlut();
 
-    if (loaded != TlutFunction::EXP) {
-        accel.load("exp");
-        loaded = TlutFunction::EXP;
-    }
-
-    auto* in_map = accel.get_in_map();
-    std::ofstream log_file("fpga_softmax_discrepancy_log.txt", std::ios::app);
-    
-    float max_val_float = -999999.0f;
-    float min_val_float = 999999.0f;
-    int out_of_bounds_count = 0;
-    int discrepancies_in = 0;
-
-    for (int i = 0; i < size; ++i) {
-        std::int16_t raw_in = static_cast<std::int16_t>(input_data[i].V);
-        in_map[i] = raw_in;
-        
-        float current_float = static_cast<float>(input_data[i]);
-        float fpga_float = in_map[i] / 1024.0f;
-
-        if (current_float > max_val_float) max_val_float = current_float;
-        if (current_float < min_val_float) min_val_float = current_float;
-
-        if (current_float < -8.0f || current_float > 1.0f) {
-            out_of_bounds_count++;
-            if (log_file.is_open()) {
-                log_file << "OUT_OF_BOUNDS [" << i << "]: " << current_float << "\n";
-            }
-        }
-
-        if (raw_in != in_map[i] || std::abs(current_float - fpga_float) > 0.001f) {
-            discrepancies_in++;
-            if (log_file.is_open()) {
-                log_file << "IN_DISCREPANCY [" << i << "]: Host(Raw:" << raw_in << ", Float:" 
-                         << current_float << ") vs FPGA(Raw:" << in_map[i] << ", Float:" 
-                         << fpga_float << ")\n";
-            }
-        }
-    }
-
-    accel.execute_process(size);
-    const auto* out_map = accel.get_out_map();
-    int discrepancies_out = 0;
-
-    for (int i = 0; i < size; ++i) {
-        output_data[i].V = out_map[i];
-        
-        if (output_data[i].V != out_map[i]) {
-            discrepancies_out++;
-            if (log_file.is_open()) {
-                log_file << "OUT_DISCREPANCY [" << i << "]: FPGA(Raw:" << out_map[i] 
-                         << ") vs Host(Raw:" << output_data[i].V << ")\n";
-            }
-        }
-    }
-
-    ap_fixed<16, 10> acc = 0.0001;
-    for (int i = 0; i < size; ++i) {
-        acc += output_data[i];
-    }
-
-    ap_fixed<24, 10> accfx = ap_fixed<24, 10>{1.0} / ap_fixed<24, 10>{acc};
-
-    for (int i = 0; i < size; ++i) {
-        output_data[i] = output_data[i] * accfx;
-    }
-
-    std::cout << "[EXP_TLUT] Procesando size: " << size << "\n";
-    std::cout << "[EXP_TLUT] Rango Entrada -> Max: " << max_val_float << " | Min: " << min_val_float << "\n";
-    std::cout << "[EXP_TLUT] Alertas de Limites LUT [-8, 1]: " << out_of_bounds_count << " valores fuera de rango\n";
-    std::cout << "[EXP_TLUT] Discrepancias de Tipos -> Input: " << discrepancies_in << " | Output: " << discrepancies_out << "\n";
-    std::cout << "[EXP_TLUT] Softmax -> Suma Acumulada: " << static_cast<float>(acc) << " | Factor de Escala: " << static_cast<float>(accfx) << "\n\n";
-
-    if (log_file.is_open()) {
-        log_file.close();
-    }
-}
-
-/*
 template <typename T>
 static void ExpTlut(const T *input_data, T *output_data, const int size) {
     std::cout << "Using ExpTlut" << std::endl;
@@ -208,7 +124,7 @@ static void ExpTlut(const T *input_data, T *output_data, const int size) {
         output_data[i] = output_data[i] * accfx;
     }
 }
-*/
+
 namespace Kernels {
 namespace Exact {
 /**
