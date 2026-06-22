@@ -5,7 +5,7 @@ SAMPLES ?= 1000
 X_MIN ?= -10
 X_MAX ?= 10
 
-EXECUTABLES := hw_tb softmax_tb tlut_tb host_tb
+EXECUTABLES := hw_tb hw_tb_2 hw_tb_3 softmax_tb tlut_tb host_tb
 
 CFLAGS := -I/opt/xilinx/xrt/include -Wall -std=c++17 -O0 -g -I. -I./hls-types/include
 LDFLAGS := -L/opt/xilinx/xrt/lib -pthread -lxrt_core -lxrt_coreutil
