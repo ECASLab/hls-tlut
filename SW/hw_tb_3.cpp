@@ -1,4 +1,4 @@
-// hw_tb_exact_sweep.cpp
+// hw_tb_rmse_sweep.cpp
 /*
  * ----------------------------------------------------------------------------
  * Copyright (c) 2026 Sergio Porras Escobar <sporras29@estudiantec.cr>
@@ -6,6 +6,7 @@
  * Testbench: Barrido exacto de puntos enteros del eje X (-8 a 8)
  * Funciones: SIGMOID, TANH, SWISH, ELU, EXP, SQRT
  * Muestras: 17 puntos exactos por función
+ * Reporte: RMSE (Raíz del Error Cuadrático Medio) por punto
  * ----------------------------------------------------------------------------
  */
 
@@ -22,9 +23,11 @@
 
 #include "api/tlut_api.cpp"
 
-struct FormatoCR : std::numpunct<char> {
-    char do_decimal_point() const override { return ','; }
-    std::string do_grouping() const override { return ""; }
+// Locale para imprimir con coma separadora de miles y punto decimal
+struct StandardNumberFormat : std::numpunct<char> {
+    char do_decimal_point() const override { return '.'; }
+    char do_thousands_sep() const override { return ','; }
+    std::string do_grouping() const override { return "\3"; }
 };
 
 static constexpr double Q10_SCALE = 1024.0; // Q6.10 => 2^10
@@ -53,8 +56,8 @@ struct TestCase {
 };
 
 int main(int argc, char** argv) {
-    std::locale localeCR(std::locale::classic(), new FormatoCR);
-    std::cout.imbue(localeCR);
+    std::locale standardLocale(std::locale::classic(), new StandardNumberFormat);
+    std::cout.imbue(standardLocale);
 
     if (argc < 2) {
         std::cerr << "Uso: " << argv[0] << " <xclbin>\n";
@@ -90,9 +93,9 @@ int main(int argc, char** argv) {
 
         std::cout << std::left << std::setw(15) << "Funcion" 
                   << std::setw(12) << "Punto X" 
-                  << std::setw(20) << "Error Absoluto" 
-                  << "Latencia Cómputo\n";
-        std::cout << std::string(65, '-') << "\n";
+                  << std::setw(20) << "RMSE" 
+                  << "Latencia Computo (ns)\n";
+        std::cout << std::string(70, '-') << "\n";
 
         for (const auto& t : tests) {
             accel.load(t.folder_name);
@@ -118,29 +121,33 @@ int main(int argc, char** argv) {
 
                 std::cout << std::left << std::setw(15) << t.name_print;
                 
-                std::string s_point = (point_x > 0 ? "+" : "") + std::to_string(point_x) + ",0";
-                if (point_x == 0) s_point = "0,0";
+                std::string s_point = (point_x > 0 ? "+" : "") + std::to_string(point_x) + ".0";
+                if (point_x == 0) s_point = "0.0";
                 std::cout << std::setw(12) << s_point;
 
                 // Si está fuera del umbral operativo de la t-LUT, se marca N/A
                 if (x_val < t.lower_th || x_val > t.upper_th) {
                     std::cout << std::setw(20) << "N/A (Fuera Umbral)"
-                              << std::fixed << std::setprecision(2) << comp_duration_ns << " ns\n";
+                              << std::fixed << std::setprecision(2) << comp_duration_ns << "\n";
                     continue;
                 }
 
                 const double y_val_hw = q10_to_double(out_map[i]);
                 const double y_ideal = t.golden(x_val);
-                const double error_abs = std::abs(y_val_hw - y_ideal);
+                
+                // Cálculo formal del RMSE (para 1 muestra, RMSE = sqrt(MSE) = |y_hw - y_ideal|)
+                const double diff = y_val_hw - y_ideal;
+                const double mse = diff * diff;
+                const double rmse = std::sqrt(mse);
 
-                std::cout << std::fixed << std::setprecision(8) << std::setw(20) << error_abs
-                          << std::fixed << std::setprecision(2) << comp_duration_ns << " ns\n";
+                std::cout << std::fixed << std::setprecision(8) << std::setw(20) << rmse
+                          << std::fixed << std::setprecision(2) << comp_duration_ns << "\n";
             }
-            std::cout << std::string(65, '-') << "\n";
+            std::cout << std::string(70, '-') << "\n";
         }
 
     } catch (const std::exception& e) {
-        std::cerr << "Error Crítico: " << e.what() << '\n';
+        std::cerr << "Error Critico: " << e.what() << '\n';
         return EXIT_FAILURE;
     }
 
