@@ -243,13 +243,13 @@ std::size_t num_samples =
                 const double diff = std::abs(y_val_hw - y_ideal);
 
                 mse += diff * diff;
+                mae += diff;
                 if (y_ideal != 0.0) {
                     mne += diff / std::abs(y_ideal);
                 } else {
                     mne += diff;
                 }
 
-                mae = std::max(mae, diff);
                 ++valid_samples;
 
                 if (diff > TOL_HARD) {
@@ -264,9 +264,12 @@ std::size_t num_samples =
                 }
             }
 
+            double rmse = 0.0;
             if (valid_samples > 0) {
                 mse /= static_cast<double>(valid_samples);
+                mae /= static_cast<double>(valid_samples);
                 mne /= static_cast<double>(valid_samples);
+                rmse = std::sqrt(mse);
             }
 
             total_errors += local_errors;
@@ -310,6 +313,7 @@ std::size_t num_samples =
                     << avg_ns_per_sample << " ns/spl (" << avg_cycles_per_sample << " ciclos/spl)\n"
                     << "Precision (Rango [" << t.lower_th << "; " << t.upper_th << "]):\n"
                     << "  - MSE:             " << std::scientific << std::setprecision(6) << mse << "\n"
+                    << "  - RMSE:            " << std::scientific << std::setprecision(6) << rmse << "\n"
                     << "  - MAE:             " << std::fixed << std::setprecision(6) << mae << "\n"
                     << "  - MNE:             " << std::scientific << std::setprecision(6) << mne << "\n"
                     << "Validacion:     "
